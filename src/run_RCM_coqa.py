@@ -109,10 +109,10 @@ def validate_model(args, model, dev_examples, dev_features, dev_dataloader, dev_
     logger.info('step: {}, dev score: {}'.format(step, dev_score))
     if (dev_score > best_dev_score):
         best_model_to_save = model.module if hasattr(model, 'module') else model
-        best_output_model_file = os.path.join(args.output_dir, "best_pretrained_model.bin")
+        best_output_model_file = os.path.join(args.output_dir, "best_RCM_model.bin")
         torch.save(best_model_to_save.state_dict(), best_output_model_file)
         best_dev_score = max(best_dev_score, dev_score)
-        logger.info("Best dev score: {}, saved to best_pretrained_model.bin".format(dev_score))
+        logger.info("Best dev score: {}, saved to best_RCM_model.bin".format(dev_score))
         
 
 
@@ -276,7 +276,7 @@ def train_model(args, model, optimizer, train_examples, train_features,
 
     # Save a trained model
     model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-    output_model_file = os.path.join(args.output_dir, "pytorch_model.bin")
+    output_model_file = os.path.join(args.output_dir, "RCM_model.bin")
     if args.do_train:
         torch.save(model_to_save.state_dict(), output_model_file)
 
@@ -368,8 +368,8 @@ def main():
     parser.add_argument("--train_file", default=None, type=str, help="triviaqa train file")
     parser.add_argument("--predict_file", default=None, type=str,
                         help="triviaqa dev or test file in SQuAD format")
-    parser.add_argument("--predict_data_file", default=None, type=str,
-                        help="triviaqa dev or test file in Triviaqa format")
+    #parser.add_argument("--predict_data_file", default=None, type=str,
+    #                    help="triviaqa dev or test file in Triviaqa format")
     # history queries parameters
     parser.add_argument("--use_history", default=False, action="store_true")
     parser.add_argument("--append_history", default=False, action="store_true", help="Whether to append the previous queries to the current one.")
@@ -561,6 +561,9 @@ def main():
                 pickle.dump(train_examples, writer)
             with open(cached_dev_examples_file, "wb") as writer:
                 pickle.dump(dev_examples, writer)
+            logger.info("Creating train and dev examples...")
+        logger.info("# of train examples: {}, # of dev examples: {}".format(
+            len(train_examples), len(dev_examples)))
         num_train_steps = int(
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
         
@@ -645,7 +648,7 @@ def main():
 
     if args.do_predict and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
         # load model
-        output_model_file = os.path.join(args.output_dir, "best_pytorch_model.bin")
+        output_model_file = os.path.join(args.output_dir, "best_RCM_model.bin")
         model_state_dict = torch.load(output_model_file)
         model = RCMBert.from_pretrained(args.bert_model,
                                         state_dict=model_state_dict,

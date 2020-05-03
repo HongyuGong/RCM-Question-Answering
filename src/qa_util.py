@@ -34,7 +34,7 @@ logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(messa
 logger = logging.getLogger(__name__)
 
 
-def split_train_dev_data(examples, train_ratio=0.8):
+def split_train_dev_data(examples, train_ratio=0.9):
     data_size = len(examples)
     train_size = int(data_size * train_ratio)
     train_inds = set(np.random.choice(range(data_size), train_size, replace=False))
