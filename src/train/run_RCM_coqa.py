@@ -1,8 +1,5 @@
 """
-RCM-BERT for question answering on QuAC dataset
- - only predict text span
- - without yes_no prediction
- - without follow-up prediction
+RCM-BERT for question answering on CoQA dataset
 """
 
 from __future__ import absolute_import
@@ -25,17 +22,16 @@ from torch.utils.data import TensorDataset, DataLoader, RandomSampler, Sequentia
 from torch.utils.data.distributed import DistributedSampler
 import torch.nn.functional as F
 from transformers.tokenization_bert import whitespace_tokenize, BasicTokenizer, BertTokenizer
-from modeling_RCM import RCMBert
-from modeling_BERT import BertForQA
-from optimization import BertAdam, warmup_linear
 from transformers.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 
-from qa_util import split_train_dev_data, gen_model_features, _improve_answer_span, \
+from optimization import BertAdam, warmup_linear
+from model.modeling_RCM import RCMBert
+from model.rl_reward import reward_estimation, reward_estimation_for_stop
+from data_helper.qa_util import split_train_dev_data, gen_model_features, _improve_answer_span, \
      get_final_text, _compute_softmax, _get_best_indexes
-from rl_reward import reward_estimation, reward_estimation_for_stop
-from data_helper_quac import read_quac_examples, convert_examples_to_features, \
+from data_helper.data_helper_coqa import read_coqa_examples, convert_examples_to_features, \
      RawResult, make_predictions, write_predictions
-from eval_quac import QuACEvaluator
+from eval_helper.eval_coqa import CoQAEvaluator
 
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -48,7 +44,8 @@ stride_action_space = [-16, 16, 32, 64, 128]
 # for sanity check
 #stride_action_space = [128]
 
-def validate_model(args, model, dev_examples, dev_features, dev_dataloader, dev_evaluator):
+def validate_model(args, model, tokenizer, dev_examples, dev_features,
+                   dev_dataloader, dev_evaluator, device):
     all_results = []
     for dev_step, batch_dev_indices in enumerate(tqdm(dev_dataloader, desc="Evaluating")):
         batch_dev_features = [dev_features[ind] for ind in batch_dev_indices]
@@ -70,6 +67,7 @@ def validate_model(args, model, dev_examples, dev_features, dev_dataloader, dev_
             with torch.no_grad():
                 chunk_stop_logits, chunk_stride_inds, chunk_stride_log_probs, \
                                    chunk_start_logits, chunk_end_logits, \
+                                   chunk_yes_no_flag_logits, chunk_yes_no_ans_logits, \
                                    prev_hidden_states = model(chunk_input_ids, chunk_segment_ids,
                                                               chunk_input_mask, prev_hidden_states)
             chunk_stop_logits = chunk_stop_logits.detach().cpu().tolist()
@@ -77,18 +75,20 @@ def validate_model(args, model, dev_examples, dev_features, dev_dataloader, dev_
             #chunk_stop_probs = chunk_stop_probs.detach().cpu().tolist()
 
             # find top answer texts for the current chunk
-            for i, example_index in enumerate(batch_eval_indices):
+            for i, example_index in enumerate(batch_dev_indices):
                 stop_logits = chunk_stop_logits[i]
                 start_logits = chunk_start_logits[i].detach().cpu().tolist()
                 end_logits = chunk_end_logits[i].detach().cpu().tolist()
-                #yes_no_flag_logits = chunk_yes_no_flag_logits[i].detach().cpu().tolist()
-                #yes_no_ans_logits = chunk_yes_no_ans_logits[i].detach().cpu().tolist()
+                yes_no_flag_logits = chunk_yes_no_flag_logits[i].detach().cpu().tolist()
+                yes_no_ans_logits = chunk_yes_no_ans_logits[i].detach().cpu().tolist()
                 id_to_tok_map = id_to_tok_maps[i]
                 example_index = example_index.item()
                 all_results.append(RawResult(example_index=example_index,
                                              stop_logits=stop_logits,
                                              start_logits=start_logits,
                                              end_logits=end_logits,
+                                             yes_no_flag_logits=yes_no_flag_logits,
+                                             yes_no_ans_logits=yes_no_ans_logits,
                                              id_to_tok_map=id_to_tok_map))
 
             # take movement action
@@ -104,20 +104,20 @@ def validate_model(args, model, dev_examples, dev_features, dev_dataloader, dev_
     dev_predictions = make_predictions(dev_examples, dev_features, all_results, args.n_best_size, \
                                         args.max_answer_length, args.do_lower_case, \
                                         args.verbose_logging, validate_flag=True)
-    dev_scores = dev_evaluator.eval_fn(dev_predictions)
-    dev_score = dev_scores['f1']
+    dev_scores = dev_evaluator.model_performance(dev_predictions)
+    dev_score = dev_scores['overall']['f1']
     logger.info('step: {}, dev score: {}'.format(step, dev_score))
     if (dev_score > best_dev_score):
         best_model_to_save = model.module if hasattr(model, 'module') else model
-        best_output_model_file = os.path.join(args.output_dir, "best_pretrained_model.bin")
+        best_output_model_file = os.path.join(args.output_dir, "best_RCM_model.bin")
         torch.save(best_model_to_save.state_dict(), best_output_model_file)
         best_dev_score = max(best_dev_score, dev_score)
-        logger.info("Best dev score: {}, saved to best_pretrained_model.bin".format(dev_score))
+        logger.info("Best dev score: {}, saved to best_RCM_model.bin".format(dev_score))
         
 
 
-def train_model(args, model, optimizer, train_examples, train_features,
-                dev_examples, dev_features, dev_evaluator, n_gpu, t_total):
+def train_model(args, model, tokenizer, optimizer, train_examples, train_features,
+                dev_examples, dev_features, dev_evaluator, device, n_gpu, t_total):
     train_indices = torch.arange(len(train_features), dtype=torch.long)
     if args.local_rank == -1:
         train_sampler = RandomSampler(train_indices)
@@ -142,8 +142,8 @@ def train_model(args, model, optimizer, train_examples, train_features,
             batch_doc_tokens = [f.doc_tokens for f in batch_features]
             batch_start_positions = [f.start_position for f in batch_features]
             batch_end_positions = [f.end_position for f in batch_features]
-            #batch_yes_no_flags = [f.yes_no_flag for f in batch_features]
-            #batch_yes_no_answers = [f.yes_no_ans for f in batch_features]
+            batch_yes_no_flags = [f.yes_no_flag for f in batch_features]
+            batch_yes_no_answers = [f.yes_no_ans for f in batch_features]
 
             batch_size = len(batch_features)
             cur_global_pointers = [0] * batch_size # global position of current pointer at the document
@@ -167,17 +167,19 @@ def train_model(args, model, optimizer, train_examples, train_features,
                 chunk_segment_ids = torch.tensor(chunk_segment_ids, dtype=torch.long, device=device)
                 chunk_start_positions = torch.tensor(chunk_start_positions, dtype=torch.long, device=device)
                 chunk_end_positions = torch.tensor(chunk_end_positions, dtype=torch.long, device=device)
-                #chunk_yes_no_flags = torch.tensor(batch_yes_no_flags, dtype=torch.long, device=device)
-                #chunk_yes_no_answers = torch.tensor(batch_yes_no_answers, dtype=torch.long, device=device)
+                chunk_yes_no_flags = torch.tensor(batch_yes_no_flags, dtype=torch.long, device=device)
+                chunk_yes_no_answers = torch.tensor(batch_yes_no_answers, dtype=torch.long, device=device)
                 chunk_stop_flags = torch.tensor(chunk_stop_flags, dtype=torch.long, device=device)
                 
                 # model to find span
                 chunk_stop_logits, chunk_stride_inds, chunk_stride_log_probs, \
                                    chunk_start_logits, chunk_end_logits, \
+                                   chunk_yes_no_flag_logits, chunk_yes_no_ans_logits, \
                                    prev_hidden_states, chunk_stop_loss, chunk_answer_loss = \
                                    model(chunk_input_ids, chunk_segment_ids, chunk_input_mask,
                                          prev_hidden_states, chunk_stop_flags,
-                                         chunk_start_positions, chunk_end_positions)
+                                         chunk_start_positions, chunk_end_positions,
+                                         chunk_yes_no_flags, chunk_yes_no_answers)
                 chunk_stop_logits = chunk_stop_logits.detach()
                 chunk_stop_probs = F.softmax(chunk_stop_logits, dim=1)
                 chunk_stop_probs = chunk_stop_probs[:, 1]
@@ -208,12 +210,13 @@ def train_model(args, model, optimizer, train_examples, train_features,
                     # reward estimation for reinforcement learning
                     chunk_start_probs = F.softmax(chunk_start_logits.detach(), dim=1).tolist()
                     chunk_end_probs = F.softmax(chunk_end_logits.detach(), dim=1).tolist()
-                    #chunk_yes_no_flag_probs = F.softmax(chunk_yes_no_flag_logits.detach(), dim=1).tolist()
-                    #chunk_yes_no_ans_probs = F.softmax(chunk_yes_no_ans_logits.detach(), dim=1).tolist()
+                    chunk_yes_no_flag_probs = F.softmax(chunk_yes_no_flag_logits.detach(), dim=1).tolist()
+                    chunk_yes_no_ans_probs = F.softmax(chunk_yes_no_ans_logits.detach(), dim=1).tolist()
                     # rewards if stop at the current chunk
                     chunk_stop_rewards = reward_estimation_for_stop(chunk_start_probs, chunk_end_probs,
-                                                                         chunk_start_positions.tolist(), chunk_end_positions.tolist(),
-                                                                         chunk_stop_flags.tolist())
+                                                                    chunk_start_positions.tolist(), chunk_end_positions.tolist(),
+                                                                    chunk_yes_no_flag_probs, chunk_yes_no_ans_probs,
+                                                                    batch_yes_no_flags, batch_yes_no_answers, chunk_stop_flags.tolist())
                     stop_rewards.append(chunk_stop_rewards)
 
                     # save history (exclude the prob of the last read since the last action is not evaluated)
@@ -257,7 +260,8 @@ def train_model(args, model, optimizer, train_examples, train_features,
             # validation on dev data
             if args.do_validate and step % 499 == 0:
                 model.eval()
-                validate_model(args, model, dev_examples, dev_features, dev_dataloader, dev_evaluator)
+                validate_model(args, model, tokenizer, dev_examples, dev_features,
+                               dev_dataloader, dev_evaluator, device)
                 model.train()
             
             if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -273,12 +277,12 @@ def train_model(args, model, optimizer, train_examples, train_features,
 
     # Save a trained model
     model_to_save = model.module if hasattr(model, 'module') else model  # Only save the model it-self
-    output_model_file = os.path.join(args.output_dir, "pytorch_model.bin")
+    output_model_file = os.path.join(args.output_dir, "RCM_model.bin")
     if args.do_train:
         torch.save(model_to_save.state_dict(), output_model_file)
 
 
-def test_model(args, model, test_examples, test_features):
+def test_model(args, model, tokenizer, test_examples, test_features, device):
     test_indices = torch.arange(len(test_features), dtype=torch.long)
     test_sampler = SequentialSampler(test_indices)
     test_dataloader = DataLoader(test_indices, sampler=test_sampler, batch_size=args.predict_batch_size)
@@ -305,6 +309,7 @@ def test_model(args, model, test_examples, test_features):
             with torch.no_grad():
                 chunk_stop_logits, chunk_stride_inds, chunk_stride_log_probs, \
                                    chunk_start_logits, chunk_end_logits, \
+                                   chunk_yes_no_flag_logits, chunk_yes_no_ans_logits, \
                                    prev_hidden_states = model(chunk_input_ids, chunk_segment_ids,
                                                               chunk_input_mask, prev_hidden_states)
             # stop_probs: current chunk contains answer
@@ -317,14 +322,16 @@ def test_model(args, model, test_examples, test_features):
                 stop_logits = chunk_stop_logits[i]
                 start_logits = chunk_start_logits[i].detach().cpu().tolist()
                 end_logits = chunk_end_logits[i].detach().cpu().tolist()
-                #yes_no_flag_logits = chunk_yes_no_flag_logits[i].detach().cpu().tolist()
-                #yes_no_ans_logits = chunk_yes_no_ans_logits[i].detach().cpu().tolist()
+                yes_no_flag_logits = chunk_yes_no_flag_logits[i].detach().cpu().tolist()
+                yes_no_ans_logits = chunk_yes_no_ans_logits[i].detach().cpu().tolist()
                 id_to_tok_map = id_to_tok_maps[i]
                 example_index = example_index.item()
                 all_results.append(RawResult(example_index=example_index,
                                              stop_logits=stop_logits,
                                              start_logits=start_logits,
                                              end_logits=end_logits,
+                                             yes_no_flag_logits=yes_no_flag_logits,
+                                             yes_no_ans_logits=yes_no_ans_logits,
                                              id_to_tok_map=id_to_tok_map))
 
             # take movement action
@@ -362,8 +369,8 @@ def main():
     parser.add_argument("--train_file", default=None, type=str, help="triviaqa train file")
     parser.add_argument("--predict_file", default=None, type=str,
                         help="triviaqa dev or test file in SQuAD format")
-    parser.add_argument("--predict_data_file", default=None, type=str,
-                        help="triviaqa dev or test file in Triviaqa format")
+    #parser.add_argument("--predict_data_file", default=None, type=str,
+    #                    help="triviaqa dev or test file in Triviaqa format")
     # history queries parameters
     parser.add_argument("--use_history", default=False, action="store_true")
     parser.add_argument("--append_history", default=False, action="store_true", help="Whether to append the previous queries to the current one.")
@@ -384,7 +391,7 @@ def main():
     #parser.add_argument("--reinforcement_training", action='store_true', help="Whether to do reinforcement learning.")
     #parser.add_argument("--reload_model", action='store_true', help="Load pretrained model for tuning.")
     parser.add_argument("--reload_model_path", type=str, help="Path of pretrained model.")
-    parser.add_argument("--recur_type", type=str, default="linear", help="Recurrence model type.")
+    parser.add_argument("--recur_type", type=str, default="gated", help="Recurrence model type.")
     # model parameters
     parser.add_argument("--train_batch_size", default=32, type=int, help="Total batch size for training.")
     parser.add_argument("--predict_batch_size", default=8, type=int, help="Total batch size for predictions.")
@@ -485,20 +492,20 @@ def main():
                                         state_dict=model_state_dict,
                                         action_num=len(stride_action_space),
                                         recur_type=args.recur_type,
-                                        allow_yes_no=False)
+                                        allow_yes_no=True)
     elif args.pretrained_model_path is not None and os.path.isdir(args.pretrained_model_path):
         logger.info("Reloading a basic model from  {}".format(args.pretrained_model_path))
         model = RCMBert.from_pretrained(args.pretrained_model_path,
                                         action_num=len(stride_action_space),
                                         recur_type=args.recur_type,
-                                        allow_yes_no=False)
+                                        allow_yes_no=True)
     else:
         logger.info("Training a new model from scratch")
         model = RCMBert.from_pretrained(args.bert_model,
                                         cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank),
                                         action_num=len(stride_action_space),
                                         recur_type=args.recur_type,
-                                        allow_yes_no=False)
+                                        allow_yes_no=True)
         
     if args.fp16:
         model.half()
@@ -545,7 +552,7 @@ def main():
                 dev_examples = pickle.load(reader)
             logger.info("Loading train and dev examples...")
         except:
-            all_train_examples = read_quac_examples(
+            all_train_examples = read_coqa_examples(
                 input_file=args.train_file,
                 is_training=True,
                 use_history=args.use_history,
@@ -555,6 +562,9 @@ def main():
                 pickle.dump(train_examples, writer)
             with open(cached_dev_examples_file, "wb") as writer:
                 pickle.dump(dev_examples, writer)
+            logger.info("Creating train and dev examples...")
+        logger.info("# of train examples: {}, # of dev examples: {}".format(
+            len(train_examples), len(dev_examples)))
         num_train_steps = int(
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
         
@@ -584,20 +594,21 @@ def main():
                              t_total=t_total)
 
     if args.do_train:
-        cached_train_features_file = args.train_file+'_{0}_{1}_{2}_RCM_train'.format(
-            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_seq_length), \
-            str(args.max_query_length))
-        cached_dev_features_file = args.train_file+'_{0}_{1}_{2}_RCM_dev'.format(
-            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_seq_length), \
-            str(args.max_query_length))
+        cached_train_features_file = args.train_file+'_{0}_{1}_RCM_train'.format(
+            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_query_length))
+        cached_dev_features_file = args.train_file+'_{0}_{1}_RCM_dev'.format(
+            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_query_length))
         train_features = None
         dev_features = None
         try:
+            print("Load train and dev features...")
             with open(cached_train_features_file, "rb") as reader:
                 train_features = pickle.load(reader)
             with open(cached_dev_features_file, "rb") as reader:
                 dev_features = pickle.load(reader)
+            print("Done loading features...")
         except:
+            print("Create train and dev features...")
             train_features = convert_examples_to_features(
                 examples=train_examples,
                 tokenizer=tokenizer,
@@ -610,7 +621,8 @@ def main():
                 max_query_length=args.max_query_length,
                 is_training=True,
                 append_history=args.append_history)
-                
+            print("Done creating features...")
+            
             if args.local_rank == -1 or torch.distributed.get_rank() == 0:
                 logger.info("  Saving train features into cached file %s", cached_train_features_file)
                 logger.info("  Saving dev features into cached file %s", cached_dev_features_file)
@@ -630,26 +642,26 @@ def main():
             logger.info("  Num orig dev examples = %d", len(dev_examples))
             logger.info("  Num split dev examples = %d", len(dev_features))
             logger.info("  Batch size = %d", args.predict_batch_size)
-            dev_evaluator = QuACEvaluator(dev_examples)
+            dev_evaluator = CoQAEvaluator(dev_examples)
 
-        train_model(args, model, optimizer, train_examples, train_features,
-                    dev_examples, dev_features, dev_evaluator, n_gpu, t_total)
+        train_model(args, model, tokenizer, optimizer, train_examples, train_features,
+                    dev_examples, dev_features, dev_evaluator, device, n_gpu, t_total)
 
 
 
     if args.do_predict and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
         # load model
-        output_model_file = os.path.join(args.output_dir, "best_pytorch_model.bin")
+        output_model_file = os.path.join(args.output_dir, "best_RCM_model.bin")
         model_state_dict = torch.load(output_model_file)
         model = RCMBert.from_pretrained(args.bert_model,
                                         state_dict=model_state_dict,
                                         action_num=len(stride_action_space),
                                         recur_type=args.recur_type,
-                                        allow_yes_no=False)
+                                        allow_yes_no=True)
         model.to(device)
         
         # load data
-        test_examples = read_quac_examples(
+        test_examples = read_coqa_examples(
             input_file=args.predict_file,
             is_training=False,
             use_history=args.use_history,
@@ -675,7 +687,7 @@ def main():
         logger.info("  Num test orig examples = %d", len(test_examples))
         logger.info("  Num test split examples = %d", len(test_features))
         logger.info("  Batch size = %d", args.predict_batch_size)
-        test_model(args, model, test_examples, test_features)
+        test_model(args, model, tokenizer, test_examples, test_features, device)
         
 
 

@@ -22,19 +22,20 @@ from torch.utils.data import TensorDataset, DataLoader, RandomSampler, Sequentia
 from torch.utils.data.distributed import DistributedSampler
 import torch.nn.functional as F
 from transformers.tokenization_bert import whitespace_tokenize, BasicTokenizer, BertTokenizer
-from modeling_RCM import RCMBert
-from modeling_BERT import BertForQA
-from optimization import BertAdam, warmup_linear
 from transformers.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 
-from qa_util import split_train_dev_data, gen_model_features, _improve_answer_span, \
+from optimization import BertAdam, warmup_linear
+from model.modeling_RCM import RCMBert
+from model.rl_reward import reward_estimation, reward_estimation_for_stop
+#from model.modeling_BERT import BertForQA
+from data_helper.qa_util import split_train_dev_data, gen_model_features, _improve_answer_span, \
      get_final_text, _compute_softmax, _get_best_indexes
-from rl_reward import reward_estimation, reward_estimation_for_stop
-from data_helper_trivia import read_trivia_examples, convert_examples_to_features, \
+from data_helper.data_helper_trivia import read_trivia_examples, convert_examples_to_features, \
      RawResult, make_predictions, write_predictions
-from eval_triviaqa import evaluate_triviaqa
-import json_utils
-import trivia_dataset_utils
+import data_helper.json_utils
+import data_helper.trivia_dataset_utils
+from eval_helper.eval_triviaqa import evaluate_triviaqa
+
 
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -47,7 +48,8 @@ stide_action_space = [-32, 64, 128, 256, 512]
 # for sanity check
 #stride_action_space = [128]
 
-def validate_model(args, model, dev_examples, dev_features, dev_dataloader, dev_ground_truth):
+def validate_model(args, model, tokenizer, dev_examples, dev_features,
+                   dev_dataloader, dev_ground_truth, device):
     all_results = []
     for dev_step, batch_dev_indices in enumerate(tqdm(dev_dataloader, desc="Evaluating")):
         batch_dev_features = [dev_features[ind] for ind in batch_dev_indices]
@@ -114,8 +116,8 @@ def validate_model(args, model, dev_examples, dev_features, dev_dataloader, dev_
         #log.write('Best eval score: '+str(best_eval_score)+'\n')
 
 
-def train_model(args, model, optimizer, train_examples, train_features,
-                dev_examples, dev_features, dev_ground_truth, n_gpu, t_total):
+def train_model(args, model, tokenizer, optimizer, train_examples, train_features,
+                dev_examples, dev_features, dev_ground_truth, device, n_gpu, t_total):
     train_indices = torch.arange(len(train_features), dtype=torch.long)
     if args.local_rank == -1:
         train_sampler = RandomSampler(train_indices)
@@ -253,7 +255,8 @@ def train_model(args, model, optimizer, train_examples, train_features,
             # validation on dev data
             if args.do_validate and step % 499 == 0:
                 model.eval()
-                validate_model(args, model, dev_examples, dev_features, dev_dataloader, dev_ground_truth)
+                validate_model(args, model, tokenizer, dev_examples, dev_features,
+                               dev_dataloader, dev_ground_truth, device)
                 model.train()
             
             if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -274,7 +277,7 @@ def train_model(args, model, optimizer, train_examples, train_features,
         torch.save(model_to_save.state_dict(), output_model_file)
 
 
-def test_model(args, model, test_examples, test_features):
+def test_model(args, model, tokenizer, test_examples, test_features, device):
     test_indices = torch.arange(len(test_features), dtype=torch.long)
     test_sampler = SequentialSampler(test_indices)
     test_dataloader = DataLoader(test_indices, sampler=test_sampler, batch_size=args.predict_batch_size)
@@ -376,7 +379,7 @@ def main():
     #parser.add_argument("--reinforcement_training", action='store_true', help="Whether to do reinforcement learning.")
     #parser.add_argument("--reload_model", action='store_true', help="Load pretrained model for tuning.")
     parser.add_argument("--reload_model_path", type=str, help="Path of pretrained model.")
-    parser.add_argument("--recur_type", type=str, default="linear", help="Recurrence model type.")
+    parser.add_argument("--recur_type", type=str, default="gated", help="Recurrence model type.")
     # model parameters
     parser.add_argument("--train_batch_size", default=32, type=int, help="Total batch size for training.")
     parser.add_argument("--predict_batch_size", default=8, type=int, help="Total batch size for predictions.")
@@ -623,8 +626,8 @@ def main():
             dev_json = json_utils.read_trivia_data(args.predict_data_file)
             dev_ground_truth = trivia_dataset_utils.get_key_to_ground_truth(dev_json)
 
-        train_model(args, model, optimizer, train_examples, train_features,
-                    dev_examples, dev_features, dev_ground_truth, n_gpu, t_total)
+        train_model(args, model, tokenizer, optimizer, train_examples, train_features,
+                    dev_examples, dev_features, dev_ground_truth, device, n_gpu, t_total)
 
 
 
@@ -663,7 +666,7 @@ def main():
         logger.info("  Num test orig examples = %d", len(test_examples))
         logger.info("  Num test split examples = %d", len(test_features))
         logger.info("  Batch size = %d", args.predict_batch_size)
-        test_model(args, model, test_examples, test_features))
+        test_model(args, model, tokenizer, test_examples, test_features, device)
         
 
 

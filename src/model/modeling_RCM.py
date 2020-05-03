@@ -92,15 +92,15 @@ class recurLSTMNetwork(nn.Module):
         return (hidden_states, cell_states)
 
 
-class recurGateNetwork(nn.Module):
+class recurGatedNetwork(nn.Module):
     """
     Simplified version:
     hidden_states = x_t + prev_hidden_states
     """
     def __init__(self, input_size, hidden_size):
-        super(recurGateNetwork, self).__init__()
+        super(recurGatedNetwork, self).__init__()
         self.attn = nn.Linear(input_size + hidden_size, 2)
-        print("Linear recurrence...")
+        print("Gated recurrence...")
 
     def forward(self, x_t, prev_hidden_states):
         # weights: (bsz, 2)
@@ -115,13 +115,13 @@ class recurGateNetwork(nn.Module):
 
 
 class RCMBert(BertPreTrainedModel):
-    def __init__(self, config, action_num, recur_type="linear", allow_yes_no=False):
+    def __init__(self, config, action_num, recur_type="gated", allow_yes_no=False):
         super(RCMBert, self).__init__(config)
         self.bert = BertModel(config)
         self.recur_type = recur_type
         self.allow_yes_no = allow_yes_no
-        if recur_type == "linear":
-            self.recur_network = recurGateNetwork(config.hidden_size, config.hidden_size)
+        if recur_type == "gated":
+            self.recur_network = recurGatedNetwork(config.hidden_size, config.hidden_size)
         elif recur_type == "lstm":
             self.recur_network = recurLSTMNetwork(config.hidden_size, config.hidden_size)
         else:
@@ -153,7 +153,9 @@ class RCMBert(BertPreTrainedModel):
         stop_probs, move_probs, start_logits, end_logits, yes_no_flag_logits, yes_no_ans_logits,
         prev_hidden_states
         """
-        sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask, output_all_encoded_layers=False)
+        outputs = self.bert(input_ids, attention_mask=attention_mask,
+                                       token_type_ids=token_type_ids)
+        sequence_output = outputs[0]
         # add dropout
         sequence_output = self.dropout(sequence_output)
         # sent_output: (batch_size, hidden_size)
@@ -161,7 +163,7 @@ class RCMBert(BertPreTrainedModel):
         sent_output = sent_output.squeeze(1)
         
         # combine hidden_states for stop and moving prediction
-        if self.recur_type == "linear":
+        if self.recur_type == "gated":
             cur_hidden_states = sent_output if prev_hidden_states is None \
                                 else self.recur_network(sent_output, prev_hidden_states)
             recur_sent_output = cur_hidden_states
@@ -179,8 +181,8 @@ class RCMBert(BertPreTrainedModel):
         end_logits = end_logits.squeeze(-1)
         # yes-no question
         if self.allow_yes_no:
-            yes_no_flag_logits = self.yes_no_flag_outputs(sequence_output)
-            yes_no_ans_logits = self.yes_no_ans_outputs(sequence_output)
+            yes_no_flag_logits = self.yes_no_flag_outputs(sent_output)
+            yes_no_ans_logits = self.yes_no_ans_outputs(sent_output)
             yes_no_flag_logits = yes_no_flag_logits.squeeze(-1)
             yes_no_ans_logits = yes_no_ans_logits.squeeze(-1)
         

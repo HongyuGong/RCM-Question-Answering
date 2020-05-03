@@ -1,7 +1,8 @@
 """
-data_helper_trivia.py
- - helper functions to process trivia dataset
+data_helper.py
+ - utility functions to process data (CoQA)
 """
+
 from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
@@ -22,6 +23,8 @@ from torch.utils.data import TensorDataset, DataLoader, RandomSampler, Sequentia
 from torch.utils.data.distributed import DistributedSampler
 from transformers.tokenization_bert import whitespace_tokenize, BasicTokenizer, BertTokenizer
 
+from data_helper.qa_util import _improve_answer_span, _get_best_indexes, get_final_text
+
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -29,39 +32,61 @@ logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(messa
 logger = logging.getLogger(__name__)
 
 
-class TriviaExample(object):
+class CoQAExample(object):
+    """
+    a single training/test example for CoQA dataset.
+    """
     def __init__(self,
-                 qas_id,
-                 question_text,
+                 paragraph_id,
+                 turn_id,
+                 question_texts,
                  doc_tokens,
                  orig_answer_text=None,
                  start_position=None,
-                 end_position=None):
-        self.qas_id = qas_id
-        self.question_text = question_text
+                 end_position=None,
+                 yes_no_flag=None,
+                 yes_no_ans=None):
+        self.paragraph_id = paragraph_id
+        self.turn_id = turn_id
+        self.question_texts = question_texts # list of question_text string, sorted in time order
         self.doc_tokens = doc_tokens
         self.orig_answer_text = orig_answer_text
         self.start_position = start_position
         self.end_position = end_position
+        self.yes_no_flag = yes_no_flag
+        self.yes_no_ans = yes_no_ans
+
 
 
 class ExampleFeature(object):
+    """
+    feature for one example - no chunking of documents
+    """
     def __init__(self,
                  example_index,
                  query_tokens,
                  doc_tokens,
                  tok_to_orig_map,
                  start_position=None,
-                 end_position=None):
+                 end_position=None,
+                 yes_no_flag=None,
+                 yes_no_ans=None):
         self.example_index = example_index
         self.query_tokens = query_tokens
         self.doc_tokens = doc_tokens
-        self.tok_to_orig_map = tok_to_orig_map
+        # map position of tokenized doc_tokens to position in orignal doc_tokens
+        self.tok_to_orig_map=tok_to_orig_map
         self.start_position = start_position
         self.end_position = end_position
-                 
+        self.yes_no_flag = yes_no_flag
+        self.yes_no_ans = yes_no_ans
 
-def read_trivia_examples(input_file, is_training=True):
+
+
+def read_coqa_examples(input_file, is_training=True, use_history=False, n_history=-1):
+    """
+    read a CoQA json file into a list of QA examples
+    """
     total_cnt = 0
     with open(input_file, "r", encoding='utf-8') as reader:
         input_data = json.load(reader)['data']
@@ -72,92 +97,127 @@ def read_trivia_examples(input_file, is_training=True):
         return False
 
     examples = []
-    no_answer_cnt = 0
     for entry in input_data:
-        for paragraph in entry["paragraphs"]:
-            paragraph_text = paragraph["context"]
-            doc_tokens = []
-            char_to_word_offset = []
-            prev_is_whitespace = True
-            for c in paragraph_text:
-                if is_whitespace(c):
-                    prev_is_whitespace = True
+        # process story text
+        paragraph_text = entry["story"]
+        paragraph_id = entry["id"]
+        doc_tokens = []
+        char_to_word_offset = []
+        prev_is_whitespace = True
+        for c in paragraph_text:
+            if is_whitespace(c):
+                prev_is_whitespace = True
+            else:
+                if prev_is_whitespace:
+                    doc_tokens.append(c)
                 else:
-                    if prev_is_whitespace:
-                        doc_tokens.append(c)
-                    else:
-                        doc_tokens[-1] += c
-                    prev_is_whitespace = False
-                char_to_word_offset.append(len(doc_tokens) - 1)
+                    doc_tokens[-1] += c
+                prev_is_whitespace = False
+            # each char is mapped to word position
+            char_to_word_offset.append(len(doc_tokens) - 1)
 
-            for qa in paragraph["qas"]:
-                qas_id = qa["id"]
-                question_text = qa["question"]
-                start_position = None
-                end_position = None
-                orig_answer_text = None
-                if qa["answers"] == []:
-                    no_answer_cnt += 1
-                    continue
-                if is_training:
-                    answer = qa["answers"][0]
-                    orig_answer_text = answer["text"]
-                    answer_offset = answer["answer_start"]
-                    answer_length = len(orig_answer_text)
-                    # word position
-                    start_position = char_to_word_offset[answer_offset]
-                    end_position = char_to_word_offset[answer_offset + answer_length - 1]
-                    actual_text = " ".join(doc_tokens[start_position:(end_position + 1)])
-                    cleaned_answer_text = " ".join(
-                        whitespace_tokenize(orig_answer_text))
-                    cleaned_start = actual_text.lower().find(cleaned_answer_text)
-                    #if actual_text.find(cleaned_answer_text) == -1:
-                    if cleaned_start == -1:
-                        logger.warning("Could not find answer: '%s' vs. '%s'",
-                                       actual_text, cleaned_answer_text)
-                        continue
-                    else:
-                        # cleaned_answer_text might be lower cased, needs to be reconstructued from actual_text
-                        orig_answer_text = actual_text[cleaned_start:cleaned_start+len(cleaned_answer_text)]
+        # process questions
+        question_history_texts = []
+        for (question, ans) in zip(entry['questions'], entry['answers']):
+            total_cnt += 1  
+            cur_question_text = question["input_text"]
+            question_history_texts.append(cur_question_text)
+            question_id = question["turn_id"]
+            ans_id = ans["turn_id"]
+            start_position = None
+            end_position =None
+            yes_no_flag = None
+            yes_no_ans = None
+            orig_answer_text = None
+            if (question_id != ans_id):
+                print("question turns are not ordered!")
+                print("mismatched question {}".format(cur_question_text))
+            if is_training:
+                orig_answer_text = ans["text"]
+                answer_offset = ans["span_start"]
+                answer_length = len(orig_answer_text)
+                start_position = char_to_word_offset[answer_offset]
+                if (answer_offset+answer_length >= len(char_to_word_offset)):
+                    end_position = char_to_word_offset[-1]
                 else:
-                    start_position = -1
-                    end_position = -1
-                    orig_answer_text = ""
-                example = TriviaExample(
-                    qas_id=qas_id,
-                    question_text=question_text,
-                    doc_tokens=doc_tokens,
-                    orig_answer_text=orig_answer_text,
-                    start_position=start_position,
-                    end_position=end_position)
-                examples.append(example)
-    print("# of questions without an answer".format(no_answer_cnt))
+                    end_position = char_to_word_offset[answer_offset + answer_length]
+                actual_text = " ".join(doc_tokens[start_position:(end_position+1)])
+                cleaned_answer_text = " ".join(whitespace_tokenize(orig_answer_text))
+                yes_no_flag = int(ans["yes_no_flag"])
+                yes_no_ans = int(ans["yes_no_ans"])
+                if actual_text.find(cleaned_answer_text) == -1:
+                    logger.warning("Could not find answer: '%s' vs. '%s'",
+                                           actual_text, cleaned_answer_text)
+                    continue
+
+            if (use_history):
+                if (n_history == -1 or n_history > len(question_history_texts)):
+                    question_texts = question_history_texts[:]
+                else:
+                    question_texts = question_history_texts[-1*n_history:]
+            else:
+                question_texts = question_history_texts[-1]
+            
+            example = CoQAExample(
+                paragraph_id=paragraph_id,
+                turn_id=question_id,
+                question_texts=question_texts,
+                doc_tokens=doc_tokens,
+                orig_answer_text = orig_answer_text,
+                start_position=start_position,
+                end_position=end_position,
+                yes_no_flag=yes_no_flag,
+                yes_no_ans=yes_no_ans)
+            examples.append(example)
+    logger.info("Total raw examples: {}".format(total_cnt))
     return examples
 
 
-def convert_examples_to_features(examples, tokenizer, max_query_length, is_training):
+def convert_examples_to_features(examples, tokenizer, max_query_length,
+                                 is_training, append_history):
+    """
+    @input format:
+    if append_history is True, query_tokens=[query, prev_queries,]
+    if append_history is False, query_tokens= [prev_queries, query]
+    """
     features = []
     for (example_index, example) in enumerate(examples):
-        query_tokens = tokenizer.tokenize(example.question_text)
-        if len(query_tokens) > max_query_length:
-            query_tokens = query_tokens[:max_query_length]
-
-        # mapping between orig and tok
+        all_query_tokens = [tokenizer.tokenize(question_text) for question_text in example.question_texts]
+        # same as basic Bert
+        if append_history:
+            all_query_tokens = all_query_tokens[::-1]
+        flat_all_query_tokens = []
+        for query_tokens in all_query_tokens:
+            flat_all_query_tokens += query_tokens
+        if append_history:
+            query_tokens = flat_all_query_tokens[:max_query_length]
+        else:
+            query_tokens = flat_all_query_tokens[-1*max_query_length:]
+            
+        # doc_tokens
         tok_to_orig_index = []
+        # tok_to_orig_map:
+        # map the token position in tokenized all_doc_tokens to
+        # the token position of original text by doc_tokens
+        tok_to_orig_map = {}
         orig_to_tok_index = []
         all_doc_tokens = []
         for (i, token) in enumerate(example.doc_tokens):
+            # the orig word is mapped to its first sub token
             orig_to_tok_index.append(len(all_doc_tokens))
             sub_tokens = tokenizer.tokenize(token)
             for sub_token in sub_tokens:
+                tok_to_orig_map[len(all_doc_tokens)] = i
                 tok_to_orig_index.append(i)
                 all_doc_tokens.append(sub_token)
 
+        # start/end position
         tok_start_position = None
         tok_end_position = None
         if is_training:
             tok_start_position = orig_to_tok_index[example.start_position]
             if example.end_position < len(example.doc_tokens) - 1:
+                # tok_end_position is the last sub token of orig end_position
                 tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
             else:
                 tok_end_position = len(all_doc_tokens) - 1
@@ -172,13 +232,16 @@ def convert_examples_to_features(examples, tokenizer, max_query_length, is_train
                 doc_tokens=all_doc_tokens,
                 tok_to_orig_map=tok_to_orig_map,
                 start_position=tok_start_position,
-                end_position=tok_end_position))
+                end_position=tok_end_position,
+                yes_no_flag=example.yes_no_flag,
+                yes_no_ans=example.yes_no_ans))
     return features
 
 
 RawResult = collections.namedtuple("RawResult", \
-                                   ["example_index", "stop_logits", \
-                                   "start_logits", "end_logits", "id_to_tok_map"])
+                                   ["example_index", "stop_logits", "start_logits", "end_logits", \
+                                   "yes_no_flag_logits", "yes_no_ans_logits", "id_to_tok_map"])
+
 
 def make_predictions(all_examples, all_features, all_results, n_best_size, \
                      max_answer_length, do_lower_case, \
@@ -195,7 +258,7 @@ def make_predictions(all_examples, all_features, all_results, n_best_size, \
         ["result_index", "start_index", "end_index", "text", "logprob"])
 
     validate_predictions = dict()
-    all_predictions = collections.OrderedDict()
+    all_predictions = []
     all_nbest_json = []
     for (example_index, feature) in enumerate(all_features):
         example = all_examples[example_index]
@@ -206,6 +269,24 @@ def make_predictions(all_examples, all_features, all_results, n_best_size, \
             #yes_no_flag_logprobs = np.log(_compute_softmax(result.yes_no_flag_logits)) # (2,)
             #yes_no_ans_logprobs = np.log(_compute_softmax(result.yes_no_ans_logits)) # (2,)
             
+            # yes-no question
+            if (np.argmax(result.yes_no_flag_logits) == 1):
+                if (np.argmax(result.yes_no_ans_logits) == 1):
+                    text = 'yes'
+                    #logprob = stop_logprob + yes_no_flag_logprobs[1] + yes_no_ans_logprobs[1]
+                    logprob = result.stop_logits[1] + result.yes_no_flag_logits[1] + result.yes_no_ans_logits[1]
+                else:
+                    text = 'no'
+                    #logprob = stop_logprob + yes_no_flag_logprobs[1] + yes_no_ans_logprobs[0]
+                    logprob = result.stop_logits[1] + result.yes_no_flag_logits[1] + result.yes_no_ans_logits[0]
+                prelim_predictions.append(
+                    _PrelimPrediction(
+                        result_index=result_index,
+                        start_index=-1,
+                        end_index=-1,
+                        text=text,
+                        logprob=logprob))
+                continue
             start_indexes = _get_best_indexes(result.start_logits, n_best_size)
             end_indexes = _get_best_indexes(result.end_logits, n_best_size)
             #start_logprobs = np.log(_compute_softmax(result.start_logits))
@@ -224,8 +305,8 @@ def make_predictions(all_examples, all_features, all_results, n_best_size, \
                         continue
                     #logprob = stop_logprob + yes_no_flag_logprobs[0] + \
                     #          start_logprobs[start_index] + end_logprobs[end_index]
-                    logprob = result.stop_logits[1] + result.start_logits[start_index] + \
-                              result.end_logits[end_index]
+                    logprob = result.stop_logits[1] + result.yes_no_flag_logits[0] + \
+                              result.start_logits[start_index] + result.end_logits[end_index]
                     prelim_predictions.append(
                         _PrelimPrediction(
                             result_index=result_index,
@@ -287,7 +368,7 @@ def make_predictions(all_examples, all_features, all_results, n_best_size, \
         assert len(nbest) >= 1
 
         if validate_flag:
-            validate_predictions[example.qas_id] = nbest[0].text
+            validate_predictions[(example.paragraph_id, example.turn_id)] = nbest[0].text
         else:
             total_scores = []
             for entry in nbest:
@@ -302,14 +383,15 @@ def make_predictions(all_examples, all_features, all_results, n_best_size, \
 
             assert len(nbest_json) >= 1
 
-            #cur_prediction = collections.OrderedDict()
-            #cur_prediction["qid"] = example.qas_id
-            #cur_prediction["answer"] = nbest_json[0]["text"]
-            #all_predictions.append(cur_prediction)
-            all_predictions[example.qas_id] = nbest_json[0]["text"]
+            cur_prediction = collections.OrderedDict()
+            cur_prediction["id"] = example.paragraph_id
+            cur_prediction["turn_id"] = example.turn_id
+            cur_prediction["answer"] = nbest_json[0]["text"]
+            all_predictions.append(cur_prediction)
 
             cur_nbest_json = collections.OrderedDict()
-            cur_nbest_json["qid"] = example.qas_id
+            cur_nbest_json["id"] = example.paragraph_id
+            cur_nbest_json["turn_id"] = example.turn_id
             cur_nbest_json["answers"] = nbest_json
             all_nbest_json.append(cur_nbest_json)
 
@@ -337,4 +419,9 @@ def write_predictions(all_examples, all_features, all_results, n_best_size, \
 
     with open(output_nbest_file, "w") as writer:
         writer.write(json.dumps(all_nbest_json, indent=4) + "\n")
+
+
+
+
+
 

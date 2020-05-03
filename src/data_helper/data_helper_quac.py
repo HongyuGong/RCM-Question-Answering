@@ -22,40 +22,43 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from transformers.tokenization_bert import whitespace_tokenize, BasicTokenizer, BertTokenizer
-from qa_util import _improve_answer_span
+from qa_util import _improve_answer_span, _get_best_indexes, get_final_text
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
                     level = logging.INFO)
 logger = logging.getLogger(__name__)
 
+#UNK = "CANNOTANSWER"
+followup_vocab = ['y', 'n', 'm']
+#yesno_vocab = ['y', 'n', 'x']
 
-class CoQAExample(object):
+
+class QuACExample(object):
     """
-    a single training/test example for CoQA dataset.
+    a train/text example for QuAC dataset
     """
     def __init__(self,
-                 paragraph_id,
-                 turn_id,
-                 question_texts,
-                 doc_tokens,
-                 orig_answer_text=None,
-                 start_position=None,
-                 end_position=None,
-                 yes_no_flag=None,
-                 yes_no_ans=None):
-        self.paragraph_id = paragraph_id
-        self.turn_id = turn_id
-        self.question_texts = question_texts # list of question_text string, sorted in time order
+               example_id,
+               questions,
+               doc_tokens,
+               orig_answer_text=None,
+               start_position=None,
+               end_position=None,
+               yes_no_flag=None,
+               yes_no_ans=None,
+               followup=None):
+        self.example_id = example_id
+        self.questions = questions
         self.doc_tokens = doc_tokens
         self.orig_answer_text = orig_answer_text
         self.start_position = start_position
         self.end_position = end_position
         self.yes_no_flag = yes_no_flag
         self.yes_no_ans = yes_no_ans
+        self.followup = followup
 
-
-
+        
 class ExampleFeature(object):
     """
     feature for one example - no chunking of documents
@@ -68,7 +71,8 @@ class ExampleFeature(object):
                  start_position=None,
                  end_position=None,
                  yes_no_flag=None,
-                 yes_no_ans=None):
+                 yes_no_ans=None,
+                 followup=None):
         self.example_index = example_index
         self.query_tokens = query_tokens
         self.doc_tokens = doc_tokens
@@ -78,27 +82,29 @@ class ExampleFeature(object):
         self.end_position = end_position
         self.yes_no_flag = yes_no_flag
         self.yes_no_ans = yes_no_ans
+        self.followup = followup
 
 
-
-def read_coqa_examples(input_file, is_training=True, use_history=False, n_history=-1):
+def read_quac_examples(input_file, is_training=True, use_history=False, n_history=-1):
     """
-    read a CoQA json file into a list of QA examples
+    read QuAC data into a list of QA examples
     """
-    total_cnt = 0
-    with open(input_file, "r", encoding='utf-8') as reader:
+    with open(input_file, "r", encoding="utf-8") as reader:
         input_data = json.load(reader)['data']
-        
+
     def is_whitespace(c):
         if c == " " or c == "\t" or c == "\r" or c == "\n" or ord(c) == 0x202F:
             return True
         return False
 
     examples = []
+    #yesno_symbols = set()
+    #followup_symbols = set()
     for entry in input_data:
-        # process story text
-        paragraph_text = entry["story"]
-        paragraph_id = entry["id"]
+        para_obj = entry['paragraphs'][0]
+        paragraph_id = para_obj['id']
+        # process context paragraph
+        paragraph_text = para_obj['context']
         doc_tokens = []
         char_to_word_offset = []
         prev_is_whitespace = True
@@ -116,92 +122,94 @@ def read_coqa_examples(input_file, is_training=True, use_history=False, n_histor
 
         # process questions
         question_history_texts = []
-        for (question, ans) in zip(entry['questions'], entry['answers']):
-            total_cnt += 1  
-            cur_question_text = question["input_text"]
+        for qa in para_obj['qas']:
+            cur_question_text = qa['question']
             question_history_texts.append(cur_question_text)
-            question_id = question["turn_id"]
-            ans_id = ans["turn_id"]
+            example_id = qa['id']
+            # word position
             start_position = None
-            end_position =None
+            end_position = None
             yes_no_flag = None
-            yes_no_ans = None
+            followup = None
             orig_answer_text = None
-            if (question_id != ans_id):
-                print("question turns are not ordered!")
-                print("mismatched question {}".format(cur_question_text))
             if is_training:
-                orig_answer_text = ans["text"]
-                answer_offset = ans["span_start"]
+                answer = qa['answers'][0]
+                orig_answer_text = answer["text"]
+                answer_offset = answer["answer_start"]
                 answer_length = len(orig_answer_text)
                 start_position = char_to_word_offset[answer_offset]
-                if (answer_offset+answer_length >= len(char_to_word_offset)):
+                if answer_offset + answer_length >= len(char_to_word_offset):
                     end_position = char_to_word_offset[-1]
                 else:
                     end_position = char_to_word_offset[answer_offset + answer_length]
                 actual_text = " ".join(doc_tokens[start_position:(end_position+1)])
                 cleaned_answer_text = " ".join(whitespace_tokenize(orig_answer_text))
-                yes_no_flag = int(ans["yes_no_flag"])
-                yes_no_ans = int(ans["yes_no_ans"])
                 if actual_text.find(cleaned_answer_text) == -1:
                     logger.warning("Could not find answer: '%s' vs. '%s'",
                                            actual_text, cleaned_answer_text)
                     continue
-
-            if (use_history):
-                if (n_history == -1 or n_history > len(question_history_texts)):
-                    question_texts = question_history_texts[:]
+                #logger.info("yesno symbol: {}, followup symbol: {}".format(qa['yesno'], qa['followup']))
+                yes_no_flag = int(qa['yesno'] in ['y','n'])
+                yes_no_ans = int(qa['yesno'] == 'y')
+                #yes_no_flag = yesno_vocab.index(qa['yesno'])
+                #yesno_symbols.add(qa['yesno'])
+                followup = followup_vocab.index(qa['followup'])
+                #followup_symbols.add(qa['followup'])
+            questions =  []
+            if use_history:
+                # !!! CONTINUE
+                if n_history == -1 or len(question_history_texts) <= n_history:
+                    questions = question_history_texts[:]
                 else:
-                    question_texts = question_history_texts[-1*n_history:]
+                    questions = question_history_texts[-1*n_history:]
             else:
-                question_texts = question_history_texts[-1]
-            
-            example = CoQAExample(
-                paragraph_id=paragraph_id,
-                turn_id=question_id,
-                question_texts=question_texts,
+                questions = [question_history_texts[-1]]
+            example = QuACExample(
+                example_id=example_id,
+                questions=questions,
                 doc_tokens=doc_tokens,
-                orig_answer_text = orig_answer_text,
+                orig_answer_text=orig_answer_text,
                 start_position=start_position,
                 end_position=end_position,
                 yes_no_flag=yes_no_flag,
-                yes_no_ans=yes_no_ans)
+                yes_no_ans=yes_no_ans,
+                followup=followup)
             examples.append(example)
-    logger.info("Total raw examples: {}".format(total_cnt))
+        
+    #logger.info("yesno symbols: {}, followup symbols: {}".format(yesno_symbols, followup_symbols))
     return examples
 
 
-def convert_examples_to_features(examples, tokenizer, max_query_length,
+def convert_examples_to_features(examples, tokenizer, max_query_length, \
                                  is_training, append_history):
-    """
-    @input format:
-    if append_history is True, query_tokens=[query, prev_queries,]
-    if append_history is False, query_tokens= [prev_queries, query]
-    """
     features = []
     for (example_index, example) in enumerate(examples):
-        all_query_tokens = [tokenizer.tokenize(question_text) for question_text in example.question_texts]
-        # same as basic Bert
+        all_query_tokens = [tokenizer.tokenize(question_text) for question_text in example.questions]
+        cur_query_tokens = all_query_tokens[-1]
+        prev_query_tokens = all_query_tokens[:-1]
         if append_history:
-            all_query_tokens = all_query_tokens[::-1]
-        flat_all_query_tokens = []
-        for query_tokens in all_query_tokens:
-            flat_all_query_tokens += query_tokens
-        if append_history:
-            query_tokens = flat_all_query_tokens[:max_query_length]
+            prev_query_tokens = prev_query_tokens[::-1]
+        flat_prev_query_tokens = []
+        for query_tokens in prev_query_tokens:
+            flat_prev_query_tokens += query_tokens
+
+        if len(cur_query_tokens) + len(flat_prev_query_tokens) + 1 <= max_query_length:
+            if append_history:
+                query_tokens = cur_query_tokens + ['[SEP]'] + flat_prev_query_tokens
+            else:
+                query_tokens = flat_prev_query_tokens + ['[SEP]'] + cur_query_tokens
         else:
-            query_tokens = flat_all_query_tokens[-1*max_query_length:]
-            
-        # doc_tokens
+            prev_query_len = max_query_length  - 1 - len(cur_query_tokens)
+            if append_history:
+                query_tokens = cur_query_tokens + ['[SEP]'] + flat_prev_query_tokens[:prev_query_len]
+            else:
+                query_tokens = flat_prev_query_tokens[-1*prev_query_len:] + ['[SEP]'] + cur_query_tokens
+
         tok_to_orig_index = []
-        # tok_to_orig_map:
-        # map the token position in tokenized all_doc_tokens to
-        # the token position of original text by doc_tokens
         tok_to_orig_map = {}
         orig_to_tok_index = []
         all_doc_tokens = []
         for (i, token) in enumerate(example.doc_tokens):
-            # the orig word is mapped to its first sub token
             orig_to_tok_index.append(len(all_doc_tokens))
             sub_tokens = tokenizer.tokenize(token)
             for sub_token in sub_tokens:
@@ -215,14 +223,12 @@ def convert_examples_to_features(examples, tokenizer, max_query_length,
         if is_training:
             tok_start_position = orig_to_tok_index[example.start_position]
             if example.end_position < len(example.doc_tokens) - 1:
-                # tok_end_position is the last sub token of orig end_position
                 tok_end_position = orig_to_tok_index[example.end_position + 1] - 1
             else:
                 tok_end_position = len(all_doc_tokens) - 1
             (tok_start_position, tok_end_position) = _improve_answer_span(
                 all_doc_tokens, tok_start_position, tok_end_position, tokenizer,
                 example.orig_answer_text)
-
         features.append(
             ExampleFeature(
                 example_index=example_index,
@@ -232,30 +238,30 @@ def convert_examples_to_features(examples, tokenizer, max_query_length,
                 start_position=tok_start_position,
                 end_position=tok_end_position,
                 yes_no_flag=example.yes_no_flag,
-                yes_no_ans=example.yes_no_ans))
+                yes_no_ans=example.yes_no_ans,
+                followup=example.followup))
     return features
 
 
 RawResult = collections.namedtuple("RawResult", \
-                                   ["example_index", "stop_logits", "start_logits", "end_logits", \
-                                   "yes_no_flag_logits", "yes_no_ans_logits", "id_to_tok_map"])
+                                   ["example_index", "stop_logits", \
+                                   "start_logits", "end_logits", \
+                                   "id_to_tok_map"])
 
 
 def make_predictions(all_examples, all_features, all_results, n_best_size, \
-                     max_answer_length, do_lower_case, \
-                     verbose_logging, validate_flag=True):
-    
+                     max_answer_length, do_lower_case, verbose_logging, \
+                     validate_flag=True):
     assert len(all_examples) == len(all_features)
-    
     example_index_to_results = collections.defaultdict(list)
     for result in all_results:
         example_index_to_results[result.example_index].append(result)
-    
+
     _PrelimPrediction = collections.namedtuple(
         "PrelimPrediction",
-        ["result_index", "start_index", "end_index", "text", "logprob"])
+        ["result_index", "start_index", "end_index", "text", "logit"])
 
-    validate_predictions = dict()
+    validate_predictions = defaultdict(dict)
     all_predictions = []
     all_nbest_json = []
     for (example_index, feature) in enumerate(all_features):
@@ -263,33 +269,17 @@ def make_predictions(all_examples, all_features, all_results, n_best_size, \
         results = example_index_to_results[example_index]
         prelim_predictions = []
         for result_index, result in enumerate(results):
-            #stop_logprob = np.log(result.stop_prob)
-            #yes_no_flag_logprobs = np.log(_compute_softmax(result.yes_no_flag_logits)) # (2,)
-            #yes_no_ans_logprobs = np.log(_compute_softmax(result.yes_no_ans_logits)) # (2,)
-            
-            # yes-no question
-            if (np.argmax(result.yes_no_flag_logits) == 1):
-                if (np.argmax(result.yes_no_ans_logits) == 1):
-                    text = 'yes'
-                    #logprob = stop_logprob + yes_no_flag_logprobs[1] + yes_no_ans_logprobs[1]
-                    logprob = result.stop_logits[1] + result.yes_no_flag_logits[1] + result.yes_no_ans_logits[1]
-                else:
-                    text = 'no'
-                    #logprob = stop_logprob + yes_no_flag_logprobs[1] + yes_no_ans_logprobs[0]
-                    logprob = result.stop_logits[1] + result.yes_no_flag_logits[1] + result.yes_no_ans_logits[0]
-                prelim_predictions.append(
-                    _PrelimPrediction(
-                        result_index=result_index,
-                        start_index=-1,
-                        end_index=-1,
-                        text=text,
-                        logprob=logprob))
-                continue
+            # yesno
+            #yes_no_flag_logits = result.yes_no_flag_logits
+            #yes_no_pred_flag = np.argmax(yes_no_flag_logits)
+
+            # followup
+            #followup_logits = result.followup_logits
+            #followup = np.argmax(followup_logits)
+
+            # answer span
             start_indexes = _get_best_indexes(result.start_logits, n_best_size)
             end_indexes = _get_best_indexes(result.end_logits, n_best_size)
-            #start_logprobs = np.log(_compute_softmax(result.start_logits))
-            #end_logprobs = np.log(_compute_softmax(result.end_logits))
-
             for start_index in start_indexes:
                 for end_index in end_indexes:
                     if start_index not in result.id_to_tok_map:
@@ -301,32 +291,37 @@ def make_predictions(all_examples, all_features, all_results, n_best_size, \
                     length = end_index - start_index + 1
                     if length > max_answer_length:
                         continue
-                    #logprob = stop_logprob + yes_no_flag_logprobs[0] + \
-                    #          start_logprobs[start_index] + end_logprobs[end_index]
-                    logprob = result.stop_logits[1] + result.yes_no_flag_logits[0] + \
-                              result.start_logits[start_index] + result.end_logits[end_index]
+                    """
+                    logit = result.stop_logits[1] + yes_no_flag_logits[yes_no_pred_flag] + \
+                            followup_logits[followup] + result.start_logits[start_index] + \
+                            result.end_logits[end_index]
+                    logit = result.stop_logits[1] + result.start_logits[start_index] + result.end_logits[end_index]
+                    """
+                    logit = result.stop_logits[1] + result.start_logits[start_index] + \
+                        result.end_logits[end_index]
                     prelim_predictions.append(
                         _PrelimPrediction(
                             result_index=result_index,
                             start_index=start_index,
                             end_index=end_index,
                             text=None,
-                            logprob=logprob))
+                            logit=logit))
         prelim_predictions = sorted(
             prelim_predictions,
-            key=lambda x: x.logprob,
+            key=lambda x: x.logit,
             reverse=True)
 
-        _NbestPrediction = collections.namedtuple("NbestPrediction", ["text", "logprob"])
-        
+        _NbestPrediction = collections.namedtuple(
+                    "NbestPrediction", ["text", "logit"])
+
         seen_predictions = {}
         nbest = []
         for pred in prelim_predictions:
             if len(nbest) >= n_best_size:
                 break
             result = results[pred.result_index]
-            if (pred.start_index == -1 or pred.end_index == -1):
-                final_text = pred.text
+            if pred.start_index < 0 or pred.end_index < 0:
+                final_text = UNK
             else:
                 # answer_tokens: tokenized answers
                 doc_start = result.id_to_tok_map[pred.start_index]
@@ -348,78 +343,100 @@ def make_predictions(all_examples, all_features, all_results, n_best_size, \
                 
                 # combine tokenized answer text and original text
                 final_text = get_final_text(answer_text, orig_answer_text, do_lower_case, verbose_logging)
-                
+            
             if final_text in seen_predictions:
                 continue
             seen_predictions[final_text] = True
             nbest.append(
                 _NbestPrediction(
                     text=final_text,
-                    logprob=pred.logprob))
+                    logit=pred.logit))
             if validate_flag:
                 break
 
         if not nbest:
             nbest.append(
-                _NbestPrediction(text="empty", logprob=0.0))
+                _NbestPrediction(
+                    text=UNK,
+                    logit=0.0))
 
         assert len(nbest) >= 1
-
         if validate_flag:
-            validate_predictions[(example.paragraph_id, example.turn_id)] = nbest[0].text
-        else:
+            qid = example.example_id
+            dia_id = qid.split("_q#")[0]
+            validate_predictions[dia_id][qid] = nbest[0].text
+
             total_scores = []
             for entry in nbest:
-                total_scores.append(entry.logprob)
+                total_scores.append(entry.logit)
+            probs = _compute_softmax(total_scores)
 
             nbest_json = []
             for (i, entry) in enumerate(nbest):
                 output = collections.OrderedDict()
                 output["text"] = entry.text
-                output["logprob"] = entry.logprob
+                output["probability"] = probs[i]
+                output["logit"] = entry.logit
                 nbest_json.append(output)
 
             assert len(nbest_json) >= 1
-
+            
             cur_prediction = collections.OrderedDict()
-            cur_prediction["id"] = example.paragraph_id
-            cur_prediction["turn_id"] = example.turn_id
-            cur_prediction["answer"] = nbest_json[0]["text"]
+            cur_prediction['example_id'] = example.example_id
+            cur_prediction['answer'] = nbest_json[0]["text"]
             all_predictions.append(cur_prediction)
 
             cur_nbest_json = collections.OrderedDict()
-            cur_nbest_json["id"] = example.paragraph_id
-            cur_nbest_json["turn_id"] = example.turn_id
+            cur_nbest_json["example_id"] = example.example_id
             cur_nbest_json["answers"] = nbest_json
             all_nbest_json.append(cur_nbest_json)
-
+            
     if validate_flag:
         return validate_predictions
     else:
         return all_predictions, all_nbest_json
 
 
-def write_predictions(all_examples, all_features, all_results, n_best_size, \
-                      max_answer_length, do_lower_case, \
-                      output_prediction_file, output_nbest_file, verbose_logging):
-    
+def format_predictions(all_predictions, output_prediction_file):
+    # format prediction outputs: https://s3.amazonaws.com/my89public/quac/example.json
+    prediction_dict = defaultdict(list) # paragraph_id: (turn_id, example_id, yesno, answer, followup)
+    for prediction in all_predictions:
+        example_id = prediction['example_id']
+        #yesno = prediction['yesno']
+        answer = prediction['answer']
+        #followup = prediction['followup']
+        ids = example_id.split("_q#")
+        paragraph_id = "".join(ids[:-1])
+        turn_id = int(ids[-1])
+        prediction_dict[paragraph_id].append((turn_id, example_id, answer))
+
+    with open(output_prediction_file, "w") as writer:
+        for paragraph_id in prediction_dict:
+            predictions = prediction_dict[pragraph_id]
+            sorted_predictions = sorted(predictions, key=lambda item:item[0], reverse=True)
+            output_dict = OrderedDict()
+            output_dict["best_span_str"] = [item[3] for item in sorted_predictions]
+            output_dict["qid"] = [item[1] for item in sorted_predictions]
+            #output_dict["yesno"] = [yesno_vocab[item[2]] for item in sorted_predictions]
+            #output_dict["followup"] = [followup_vocab[item[4]] for item in sorted_predictions]
+            writer.write(json.dumps(output_dict) + "\n")
+    print("saving predictions to {}".format(output_prediction_file))
+
+
+
+def write_predictions(all_examples, all_features, all_results, n_best_size,
+                      max_answer_length, do_lower_case, output_prediction_file,
+                      output_nbest_file, verbose_logging):
     """Write final predictions to the json file."""
     logger.info("Writing predictions to: %s" % (output_prediction_file))
     logger.info("Writing nbest to: %s" % (output_nbest_file))
 
-    all_predictions, all_nbest_json = make_predictions(all_examples, all_features, \
-                                                       all_results, n_best_size, \
-                                                       max_answer_length, do_lower_case, \
+    all_predictions, all_nbest_json = make_predictions(all_examples, all_features, all_results, \
+                                                       n_best_size, max_answer_length, do_lower_case, \
                                                        verbose_logging, validate_flag=False)
-
-    with open(output_prediction_file, "w") as writer:
-        writer.write(json.dumps(all_predictions, indent=4) + "\n")
+    
+    format_predictions(all_predictions, output_prediction_file)
 
     with open(output_nbest_file, "w") as writer:
         writer.write(json.dumps(all_nbest_json, indent=4) + "\n")
-
-
-
-
-
 

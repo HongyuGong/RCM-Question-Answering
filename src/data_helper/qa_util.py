@@ -21,12 +21,9 @@ import numpy as np
 import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
-
 from transformers.tokenization_bert import whitespace_tokenize, BasicTokenizer, BertTokenizer
-from optimization import BertAdam, warmup_linear
 from transformers.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
-#from eval_triviaqa import evaluate_triviaqa
-
+#from optimization import BertAdam, warmup_linear
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',

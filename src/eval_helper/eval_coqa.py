@@ -7,7 +7,7 @@ import json
 import re
 import string
 import sys
-
+import numpy as np
 from collections import Counter, OrderedDict
 
 #OPTS = None
@@ -103,6 +103,7 @@ class CoQAEvaluator():
         turn_count= len(exact_scores)
         em_total = np.sum([exact_scores[key] for key in exact_scores])
         f1_total = np.sum([f1_scores[key] for key in f1_scores])
+        scores = dict()
         scores["overall"] = {'em': round(em_total / max(1, turn_count) * 100, 1),
                              'f1': round(f1_total / max(1, turn_count) * 100, 1),
                              'turns': turn_count}

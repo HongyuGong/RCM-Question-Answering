@@ -5,15 +5,24 @@
 This is the re-implementation of RCM-BERT model for question answering in the paper "Recurrent Chunking Mechanisms for Long-Text Machine Reading Comprehension".
 
 Required package:
-(a) python3;
-(b) torch;
-(c) transformers (released by huggingface).
+
+(1) python3;
+
+(2) torch;
+
+(3) [transformers by uggingface](https://github.com/huggingface/transformers).
+
 
 ## Data Preparation
+
 1. CoQA
-(1) Download data from [CoQA website](https://stanfordnlp.github.io/coqa/) and save to DATA_DIR
+
+(1) Download data from [CoQA website](https://stanfordnlp.github.io/coqa/) and save to DATA_DIR. 
+
+Enter the directory RCM-Question-Answering/src/.
 
 (2) Preprocess CoQA data
+
 ref: https://github.com/stanfordnlp/coqa-baselines/blob/master/README.md
 
 Start a CoreNLP server
@@ -27,17 +36,19 @@ Start a CoreNLP server
 Run a script to preprocess data 
 
 ```bash
-python3 preprocess_coqa.py --data_file DATA_DIR/coqa-train-v1.0.json --output_file DATA_DIR/coqa.train.json
-python3 preprocess_coqa.py --data_file DATA_DIR/coqa-dev-v1.0.json --output_file DATA_DIR/coqa.dev.json
+python3 data_helper/preprocess_coqa.py --data_file DATA_DIR/coqa-train-v1.0.json --output_file DATA_DIR/coqa.train.json
+python3 data_helper/preprocess_coqa.py --data_file DATA_DIR/coqa-dev-v1.0.json --output_file DATA_DIR/coqa.dev.json
 ```
 
 2. QuAC
+
 Download data from [QuAC websiet](https://quac.ai)
 
 3. TriviaQA
+
 Download data from [TriviaQA websiet](https://nlp.cs.washington.edu/triviaqa/). Two folders qa/ and evidence/ can be found in triviaqa/.
 
-Follow instructions [here](https://github.com/mandarjoshi90/triviaqa) to adapt TriviaQA to SQuAD format. Created a subfolder under squad-qa/ under the folder triviaqa/.
+Follow instructions [here](https://github.com/mandarjoshi90/triviaqa) to adapt TriviaQA to SQuAD format. Create a subfolder under squad-qa/ under the folder triviaqa/.
 
 
 ## Training
@@ -47,7 +58,7 @@ Follow instructions [here](https://github.com/mandarjoshi90/triviaqa) to adapt T
 Train CoQA model with supervised pre-training
 
 ```bash
-python3 run_RCM_coqa.py 
+python3 train/run_RCM_coqa.py 
 --bert_model bert-large-uncased 
 --output_dir OUTPUT_DIR/pretrained/
 --train_file DATA_DIR/coqa.train.json
@@ -55,7 +66,7 @@ python3 run_RCM_coqa.py
 --n_history -1
 --max_seq_length MAX_SEQ_LENGTH
 --max_query_length 64
---doc_stride DOC_STRIDE
+--doc_stride 64
 --do_train
 --do_validate
 --do_lower_case
@@ -68,10 +79,15 @@ python3 run_RCM_coqa.py
 --max_answer_length 40
 ```
 
+* MAX_SEQ_LENGTH can be integers no larger than 512
+
+* RECUR_TYPE can be "gated" or "lstm"
+
+
 Reinforcement learning
 
 ```bash
-python3 run_RCM_coqa.py 
+python3 train/run_RCM_coqa.py 
 --bert_model bert-large-uncased 
 --output_dir OUTPUT_DIR/rl/
 --train_file DATA_DIR/coqa.train.json
@@ -79,7 +95,7 @@ python3 run_RCM_coqa.py
 --n_history -1
 --max_seq_length MAX_SEQ_LENGTH
 --max_query_length 64
---doc_stride DOC_STRIDE
+--doc_stride 64
 --do_train
 --do_validate
 --do_lower_case
@@ -97,7 +113,7 @@ python3 run_RCM_coqa.py
 # Prediction
 
 ```bash
-python3 run_RCM_coqa.py 
+python3 train/run_RCM_coqa.py 
 --bert_model bert-large-uncased 
 --output_dir OUTPUT_DIR/rl/
 --predict_file DATA_DIR/coqa.dev.json

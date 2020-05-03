@@ -20,9 +20,9 @@ from torch.nn import CrossEntropyLoss
 from transformers.modeling_bert import BertModel, BertPreTrainedModel
 
 
-class BertForQA(BertPreTrainedModel):
+class BertQA(BertPreTrainedModel):
     def __init__(self, config, allow_yes_no=False):
-        super(BertForQA, self).__init__(config)
+        super(BertQA, self).__init__(config)
         self.bert = BertModel(config)
         self.allow_yes_no = allow_yes_no
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
@@ -37,20 +37,23 @@ class BertForQA(BertPreTrainedModel):
     def forward(self, input_ids, token_type_ids=None, attention_mask=None,
                 start_positions=None, end_positions=None,
                 yes_no_flags=None, yes_no_answers=None):
-        sequence_output, _ = self.bert(input_ids, token_type_ids, attention_mask,
+        outputs = self.bert(input_ids, token_type_ids, attention_mask,
                                        output_all_encoded_layers=False)
+        sequence_output = outputs[0]
         sequence_output = self.dropout(sequence_output)
+        sent_output = sequence_output.narrow(1, 0, 1)
+        sent_output = sent_output.squeeze(1)
+        
         logits = self.qa_outputs(sequence_output)       
         start_logits, end_logits = logits.split(1, dim=-1)
         start_logits = start_logits.squeeze(-1)
         end_logits = end_logits.squeeze(-1)
         if self.allow_yes_no:
-            yes_no_flag_logits = self.yes_no_flag_outputs(sequence_output)
-            yes_no_ans_logits = self.yes_no_ans_outputs(sequence_output)
+            yes_no_flag_logits = self.yes_no_flag_outputs(sent_output)
+            yes_no_ans_logits = self.yes_no_ans_outputs(sent_output)
             yes_no_flag_logits = yes_no_flag_logits.squeeze(-1)
             yes_no_ans_logits = yes_no_ans_logits.squeeze(-1)
             
-        
         if start_positions is not None and end_positions is not None:
             # If we are on multi-GPU, split add a dimension
             if len(start_positions.size()) > 1:

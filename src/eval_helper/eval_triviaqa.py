@@ -11,8 +11,8 @@ import string
 import re
 import sys
 import argparse
-import json_utils
-import trivia_dataset_utils
+from data_helper.json_utils import read_json
+from data_helper.trivia_dataset_utils import read_triviaqa_data, get_key_to_ground_truth
 
 
 def normalize_answer(s):
@@ -150,12 +150,12 @@ if __name__ == '__main__':
     expected_version = 1.0
     args = get_args()
 
-    dataset_json = trivia_dataset_utils.read_triviaqa_data(args.dataset_file)
+    dataset_json = read_triviaqa_data(args.dataset_file)
     if dataset_json['Version'] != expected_version:
         print('Evaluation expects v-{} , but got dataset with v-{}'.format(expected_version,dataset_json['Version']),
               file=sys.stderr)
-    key_to_ground_truth = trivia_dataset_utils.get_key_to_ground_truth(dataset_json)
-    predictions = json_utils.read_json(args.prediction_file)
+    key_to_ground_truth = get_key_to_ground_truth(dataset_json)
+    predictions = read_json(args.prediction_file)
     eval_dict = evaluate_triviaqa(key_to_ground_truth, predictions)
     print(eval_dict)
 
