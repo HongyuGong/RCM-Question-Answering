@@ -23,9 +23,9 @@ from torch.utils.data import TensorDataset, DataLoader, RandomSampler, Sequentia
 from torch.utils.data.distributed import DistributedSampler
 from transformers.tokenization_bert import whitespace_tokenize, BasicTokenizer, BertTokenizer
 
-from data_helper.qa_util import _improve_answer_span, _get_best_indexes, \
-     get_final_text, _compute_softmax
-#from data_helper.data_helper_quac import QuACExample
+from data_helper.qa_util import _improve_answer_span, _get_best_indexes, get_final_text, \
+     _compute_softmax
+from data_helper.data_helper_trivia import TriviaExample
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -46,10 +46,7 @@ class ChunkFeature(object):
                  input_mask,
                  segment_ids,
                  start_position=None,
-                 end_position=None,
-                 yes_no_flag=None,
-                 yes_no_ans=None,
-                 followup=None):
+                 end_position=None):
         self.unique_id = unique_id
         self.example_index = example_index
         self.doc_span_index = doc_span_index
@@ -61,13 +58,10 @@ class ChunkFeature(object):
         self.segment_ids = segment_ids
         self.start_position = start_position
         self.end_position = end_position
-        self.yes_no_flag = yes_no_flag
-        self.yes_no_ans = yes_no_ans
-        self.followup = followup
-
+        
 
 def convert_examples_to_features(examples, tokenizer, max_seq_length,
-                                 doc_stride, max_query_length, is_training, append_history):
+                                 doc_stride, max_query_length, is_training):
     """
     Features for each chunk from a document
     A document can have multiple equally-spaced chunks
@@ -76,16 +70,9 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
     features = []
     for (example_index, example) in enumerate(examples):
         # query_tokens
-        all_query_tokens = [tokenizer.tokenize(question_text) for question_text in example.question_texts]
-        if append_history:
-            all_query_tokens = all_query_tokens[::-1]
-        flat_all_query_tokens = []
-        for query_tokens in all_query_tokens:
-            flat_all_query_tokens += query_tokens
-        if append_history:
-            query_tokens = flat_all_query_tokens[:max_query_length]
-        else:
-            query_tokens = flat_all_query_tokens[-1*max_query_length:]
+        query_tokens = tokenizer.tokenize(example.question_text)
+        if len(query_tokens) > max_query_length:
+            query_tokens = query_tokens[:max_query_length]
             
         tok_to_orig_index = []
         orig_to_tok_index = []
@@ -166,7 +153,6 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
             end_position = None
             yes_no_flag = None
             yes_no_ans = None
-            followup = None
             if is_training:
                 doc_start = doc_span.start
                 doc_end = doc_span.start + doc_span.length - 1
@@ -177,9 +163,8 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                 doc_offset = len(query_tokens) + 2
                 start_position = tok_start_position - doc_start + doc_offset
                 end_position = tok_end_position - doc_start + doc_offset
-                yes_no_flag = example.yes_no_flag
-                yes_no_ans = example.yes_no_ans
-                followup = example.followup
+                #yes_no_flag = example.yes_no_flag
+                #yes_no_ans = example.yes_no_ans
             if example_index >= 16 and example_index < 20:
                 logger.info("*** Example ***")
                 logger.info("unique_id: %s" % (unique_id))
@@ -203,10 +188,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                     input_mask=input_mask,
                     segment_ids=segment_ids,
                     start_position=start_position,
-                    end_position=end_position,
-                    yes_no_flag=yes_no_flag,
-                    yes_no_ans=yes_no_ans,
-                    followup=followup))
+                    end_position=end_position))
             unique_id += 1
     return features
 
@@ -238,7 +220,7 @@ def make_predictions(all_examples, all_features, all_results, n_best_size,
 
         prelim_predictions = []
         for (feature_index, feature) in enumerate(features):
-            result = unique_id_to_result[feature.unique_id]                  
+            result = unique_id_to_result[feature.unique_id]                    
             start_indexes = _get_best_indexes(result.start_logits, n_best_size)
             end_indexes = _get_best_indexes(result.end_logits, n_best_size)
             for start_index in start_indexes:
@@ -301,9 +283,7 @@ def make_predictions(all_examples, all_features, all_results, n_best_size,
                 tok_text = tok_text.strip()
                 tok_text = " ".join(tok_text.split())
                 orig_text = " ".join(orig_tokens)
-
                 final_text = get_final_text(tok_text, orig_text, do_lower_case, verbose_logging)
-            
             
             if final_text in seen_predictions:
                 continue
@@ -326,12 +306,11 @@ def make_predictions(all_examples, all_features, all_results, n_best_size,
         assert len(nbest) >= 1
 
         if validate_flag:
-            qid = example.example_id
-            dia_id = qid.split("_q#")[0]
-            validate_predictions[dia_id][qid] = nbest[0].text
+            validate_predictions[(example.paragraph_id, example.turn_id)] = nbest[0].text
         else:
             total_scores = []
             for entry in nbest:
+                #total_scores.append(entry.start_logit + entry.end_logit)
                 total_scores.append(entry.logit)
 
             probs = _compute_softmax(total_scores)
@@ -342,17 +321,16 @@ def make_predictions(all_examples, all_features, all_results, n_best_size,
                 output["text"] = entry.text
                 output["probability"] = probs[i]
                 output["logit"] = entry.logit
+                #output["start_logit"] = entry.start_logit
+                #output["end_logit"] = entry.end_logit
                 nbest_json.append(output)
 
             assert len(nbest_json) >= 1
 
-            cur_prediction = collections.OrderedDict()
-            cur_prediction["example_id"] = example.example_id
-            cur_prediction["answer"] = nbest_json[0]["text"]
-            all_predictions.append(cur_prediction)
+            all_predictions[example.qas_id] = nbest_json[0]["text"]
 
             cur_nbest_json = collections.OrderedDict()
-            cur_nbest_json["example_id"] = example.example_id
+            cur_nbest_json["qid"] = example.qas_id
             cur_nbest_json["answers"] = nbest_json
             all_nbest_json.append(cur_nbest_json)
     
@@ -360,33 +338,6 @@ def make_predictions(all_examples, all_features, all_results, n_best_size,
         return validate_predictions
     else:
         return all_predictions, all_nbest_json
-
-
-def format_predictions(all_predictions, output_prediction_file):
-    # format prediction outputs: https://s3.amazonaws.com/my89public/quac/example.json
-    prediction_dict = defaultdict(list) # paragraph_id: (turn_id, example_id, yesno, answer, followup)
-    for prediction in all_predictions:
-        example_id = prediction['example_id']
-        #yesno = prediction['yesno']
-        answer = prediction['answer']
-        #followup = prediction['followup']
-        ids = example_id.split("_q#")
-        paragraph_id = "".join(ids[:-1])
-        turn_id = int(ids[-1])
-        prediction_dict[paragraph_id].append((turn_id, example_id, answer))
-
-    with open(output_prediction_file, "w") as writer:
-        for paragraph_id in prediction_dict:
-            predictions = prediction_dict[pragraph_id]
-            sorted_predictions = sorted(predictions, key=lambda item:item[0], reverse=True)
-            output_dict = OrderedDict()
-            output_dict["best_span_str"] = [item[3] for item in sorted_predictions]
-            output_dict["qid"] = [item[1] for item in sorted_predictions]
-            #output_dict["yesno"] = [yesno_vocab[item[2]] for item in sorted_predictions]
-            #output_dict["followup"] = [followup_vocab[item[4]] for item in sorted_predictions]
-            writer.write(json.dumps(output_dict) + "\n")
-    print("saving predictions to {}".format(output_prediction_file))
-
 
 
 def write_predictions(all_examples, all_features, all_results, n_best_size,
@@ -400,7 +351,8 @@ def write_predictions(all_examples, all_features, all_results, n_best_size,
                                                        n_best_size, max_answer_length, do_lower_case, \
                                                        verbose_logging, validate_flag=False)
     
-    format_predictions(all_predictions, output_prediction_file)
+    with open(output_prediction_file, "w") as writer:
+        writer.write(json.dumps(all_predictions, indent=4) + "\n")
 
     with open(output_nbest_file, "w") as writer:
         writer.write(json.dumps(all_nbest_json, indent=4) + "\n")

@@ -77,7 +77,7 @@ def validate_model(args, model, tokenizer, dev_examples, dev_features,
             #chunk_stop_probs = chunk_stop_probs.detach().cpu().tolist()
 
             # find top answer texts for the current chunk
-            for i, example_index in enumerate(batch_eval_indices):
+            for i, example_index in enumerate(batch_dev_indices):
                 stop_logits = chunk_stop_logits[i]
                 start_logits = chunk_start_logits[i].detach().cpu().tolist()
                 end_logits = chunk_end_logits[i].detach().cpu().tolist()
@@ -113,7 +113,6 @@ def validate_model(args, model, tokenizer, dev_examples, dev_features,
         torch.save(best_model_to_save.state_dict(), best_output_model_file)
         best_dev_score = max(best_dev_score, dev_score)
         logger.info("Best dev score: {}, saved to best_pretrained_model.bin".format(dev_score))
-        #log.write('Best eval score: '+str(best_eval_score)+'\n')
     return best_dev_score
 
 
@@ -312,7 +311,7 @@ def test_model(args, model, tokenizer, test_examples, test_features, device):
             #stop_probs.append(chunk_stop_probs[:])
 
             # find top answer texts for the current chunk
-            for i, example_index in enumerate(batch_eval_indices):
+            for i, example_index in enumerate(batch_test_indices):
                 stop_logits = chunk_stop_logits[i]
                 start_logits = chunk_start_logits[i].detach().cpu().tolist()
                 end_logits = chunk_end_logits[i].detach().cpu().tolist()
@@ -623,7 +622,7 @@ def main():
             logger.info("  Num orig dev examples = %d", len(dev_examples))
             logger.info("  Num split dev examples = %d", len(dev_features))
             logger.info("  Batch size = %d", args.predict_batch_size)
-            # ground truth
+            # ground truth [!!! TO MODIFY !!!]
             dev_json = json_utils.read_trivia_data(args.predict_data_file)
             dev_ground_truth = trivia_dataset_utils.get_key_to_ground_truth(dev_json)
 

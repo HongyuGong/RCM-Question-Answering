@@ -1,5 +1,5 @@
 """
-BERT baseline model for CoQA
+BERT baseline model for Trivia
 """
 
 from __future__ import absolute_import
@@ -27,10 +27,12 @@ from transformers.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 from optimization import BertAdam, warmup_linear
 from model.modeling_BERT import BertQA
 from data_helper.qa_util import split_train_dev_data
-from data_helper.data_helper_coqa import read_coqa_examples
-from data_helper.chunk_helper_coqa import convert_examples_to_features, RawResult, \
+from data_helper.data_helper_trivia import read_trivia_examples
+from data_helper.chunk_helper_trivia import convert_examples_to_features, RawResult, \
      make_predictions, write_predictions
-from eval_helper.eval_coqa import CoQAEvaluator
+import data_helper.json_utils
+import data_helper.trivia_dataset_utils
+from eval_helper.eval_triviaqa import evaluate_triviaqa
 
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -40,32 +42,29 @@ logger = logging.getLogger(__name__)
 
 
 def validate_model(args, model, tokenizer, dev_examples, dev_features,
-                   dev_dataloader, dev_evaluator, best_dev_score, device):
+                   dev_dataloader, dev_ground_truth, best_dev_score, device):
     all_results = []
     for input_ids, input_mask, segment_ids, example_indices in tqdm(dev_dataloader, desc="Evaluating"):
         input_ids = input_ids.to(device)
         input_mask = input_mask.to(device)
         segment_ids = segment_ids.to(device)
         with torch.no_grad():
-            batch_start_logits, batch_end_logits, batch_yes_no_flag_logits, batch_yes_no_ans_logits \
-                                = model(input_ids, segment_ids, input_mask)
+            batch_start_logits, batch_end_logits = model(input_ids, segment_ids, input_mask)
         for i, example_index in enumerate(example_indices):
             start_logits = batch_start_logits[i].detach().cpu().tolist()
             end_logits = batch_end_logits[i].detach().cpu().tolist()
-            yes_no_flag_logits = batch_yes_no_flag_logits[i].detach().cpu().tolist()
-            yes_no_ans_logits = batch_yes_no_ans_logits[i].detach().cpu().tolist()
+            #yes_no_flag_logits = batch_yes_no_flag_logits[i].detach().cpu().tolist()
+            #yes_no_ans_logits = batch_yes_no_ans_logits[i].detach().cpu().tolist()
             dev_feature = dev_features[example_index.item()]
             unique_id = int(dev_feature.unique_id)
             all_results.append(RawResult(unique_id=unique_id,
                                          start_logits=start_logits,
-                                         end_logits=end_logits,
-                                         yes_no_flag_logits=yes_no_flag_logits,
-                                         yes_no_ans_logits=yes_no_ans_logits))
+                                         end_logits=end_logits))
     dev_predictions = make_predictions(dev_examples, dev_features, all_results,
                                         args.n_best_size, args.max_answer_length, args.do_lower_case,
                                         args.verbose_logging, validate_flag=True)
-    dev_scores = dev_evaluator.model_performance(dev_predictions)
-    dev_score = dev_scores['overall']['f1']
+    dev_scores = evaluate_triviaqa(dev_ground_truth, dev_predictions)
+    dev_score = dev_scores['f1']
     logger.info('dev score: {}'.format(dev_score))
     if dev_score > best_dev_score:
         best_model_to_save = model.module if hasattr(model, 'module') else model
@@ -76,22 +75,17 @@ def validate_model(args, model, tokenizer, dev_examples, dev_features,
     return best_dev_score
 
 
-    
-
-
-
-
 def train_model(args, model, tokenizer, optimizer, train_examples, train_features,
-                dev_examples, dev_features, dev_evaluator, device, n_gpu, t_total):
+                dev_examples, dev_features, dev_ground_truth, device, n_gpu, t_total):
     all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
     all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
     all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
     all_start_positions = torch.tensor([f.start_position for f in train_features], dtype=torch.long)
     all_end_positions = torch.tensor([f.end_position for f in train_features], dtype=torch.long)
-    all_yes_no_flags = torch.tensor([f.yes_no_flag for f in train_features], dtype=torch.long)
-    all_yes_no_answers = torch.tensor([f.yes_no_ans for f in train_features], dtype=torch.long)
+    #all_yes_no_flags = torch.tensor([f.yes_no_flag for f in train_features], dtype=torch.long)
+    #all_yes_no_answers = torch.tensor([f.yes_no_ans for f in train_features], dtype=torch.long)
     train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids,
-                               all_start_positions, all_end_positions, all_yes_no_flags, all_yes_no_answers)
+                               all_start_positions, all_end_positions)
     if args.local_rank == -1:
         train_sampler = RandomSampler(train_data)
     else:
@@ -119,10 +113,8 @@ def train_model(args, model, tokenizer, optimizer, train_examples, train_feature
         for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
             if n_gpu == 1:
                 batch = tuple(t.to(device) for t in batch) # multi-gpu does scattering it-self
-            input_ids, input_mask, segment_ids, start_positions, end_positions, \
-                       yes_no_flags, yes_no_answers = batch
-            loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions, \
-                         yes_no_flags, yes_no_answers)
+            input_ids, input_mask, segment_ids, start_positions, end_positions = batch
+            loss = model(input_ids, segment_ids, input_mask, start_positions, end_positions)
             if n_gpu > 1:
                 loss = loss.mean() # mean() to average on multi-gpu.
             if args.gradient_accumulation_steps > 1:
@@ -141,7 +133,7 @@ def train_model(args, model, tokenizer, optimizer, train_examples, train_feature
             if (epoch >=1 and step % 500 == 499):
                 model.eval()
                 best_dev_score = validate_model(args, model, tokenizer, dev_examples, dev_features,
-                                                dev_dataloader, dev_evaluator, best_dev_score, device)
+                                                dev_dataloader, dev_ground_truth, best_dev_score, device)
                 model.train()
 
             # change learning rate
@@ -180,20 +172,17 @@ def test_model(args, model, tokenizer, test_examples, test_features, device):
         input_mask = input_mask.to(device)
         segment_ids = segment_ids.to(device)
         with torch.no_grad():
-            batch_start_logits, batch_end_logits, batch_yes_no_flag_logits, batch_yes_no_ans_logits \
-                                = model(input_ids, segment_ids, input_mask)
+            batch_start_logits, batch_end_logits = model(input_ids, segment_ids, input_mask)
         for i, example_index in enumerate(example_indices):
             start_logits = batch_start_logits[i].detach().cpu().tolist()
             end_logits = batch_end_logits[i].detach().cpu().tolist()
-            yes_no_flag_logits = batch_yes_no_flag_logits[i].detach().cpu().tolist()
-            yes_no_ans_logits = batch_yes_no_ans_logits[i].detach().cpu().tolist()
+            #yes_no_flag_logits = batch_yes_no_flag_logits[i].detach().cpu().tolist()
+            #yes_no_ans_logits = batch_yes_no_ans_logits[i].detach().cpu().tolist()
             test_feature = test_features[example_index.item()]
             unique_id = int(test_feature.unique_id)
             all_results.append(RawResult(unique_id=unique_id,
                                          start_logits=start_logits,
-                                         end_logits=end_logits,
-                                         yes_no_flag_logits=yes_no_flag_logits,
-                                         yes_no_ans_logits=yes_no_ans_logits))
+                                         end_logits=end_logits))
     # write predictions
     output_prediction_file = os.path.join(args.output_dir, "predictions.json")
     output_nbest_file = os.path.join(args.output_dir, "nbest_predictions.json")
@@ -217,9 +206,9 @@ def main():
     parser.add_argument("--train_file", default=None, type=str, help="triviaqa train file")
     parser.add_argument("--predict_file", default=None, type=str,
                         help="triviaqa dev or test file in SQuAD format")
-    parser.add_argument("--use_history", default=False, action="store_true")
-    parser.add_argument("--append_history", default=False, action="store_true", help="Whether to append the previous queries to the current one.")
-    parser.add_argument("--n_history", default=-1, type=int, help="The number of previous queries used in current query.")
+    #parser.add_argument("--use_history", default=False, action="store_true")
+    #parser.add_argument("--append_history", default=False, action="store_true", help="Whether to append the previous queries to the current one.")
+    #parser.add_argument("--n_history", default=-1, type=int, help="The number of previous queries used in current query.")
     parser.add_argument("--max_seq_length", default=512, type=int,
                         help="The maximum total input sequence length after WordPiece tokenization. Sequences "
                              "longer than this will be truncated, and sequences shorter than this will be padded.")
@@ -325,7 +314,7 @@ def main():
     logger.info("Training BERT model")
     model = BertQA.from_pretrained(args.bert_model,
                                    cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank),
-                                   allow_yes_no=True)
+                                   allow_yes_no=False)
     
     if args.fp16:
         model.half()
@@ -355,7 +344,7 @@ def main():
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
 
-    # CoQA Example and ChunkFeature
+    # QuAC Example and ChunkFeature
     train_examples = None
     num_train_steps = None
     num_train_steps = None
@@ -369,11 +358,9 @@ def main():
                 dev_examples = pickle.load(reader)
             logger.info("Loading train and dev examples...")
         except:
-            all_train_examples = read_coqa_examples(
+            all_train_examples = read_trivia_examples(
                 input_file=args.train_file,
-                is_training=True,
-                use_history=args.use_history,
-                n_history=args.n_history)
+                is_training=True)
             train_examples, dev_examples = split_train_dev_data(all_train_examples)
             with open(cached_train_examples_file, "wb") as writer:
                 pickle.dump(train_examples, writer)
@@ -432,16 +419,14 @@ def main():
                 max_seq_length=args.max_seq_length,
                 doc_stride=args.doc_stride,
                 max_query_length=args.max_query_length,
-                is_training=True,
-                append_history=args.append_history)
+                is_training=True)
             dev_features = convert_examples_to_features(
                 examples=dev_examples,
                 tokenizer=tokenizer,
                 max_seq_length=args.max_seq_length,
                 doc_stride=args.doc_stride,
                 max_query_length=args.max_query_length,
-                is_training=True,
-                append_history=args.append_history)
+                is_training=True)
             print("Done creating features...")
             
             if args.local_rank == -1 or torch.distributed.get_rank() == 0:
@@ -453,20 +438,23 @@ def main():
                     pickle.dump(dev_features, writer)
         
         logger.info("***** Running training *****")
-        logger.info("  Num orig examples = %d", len(train_examples))
-        logger.info("  Num split examples = %d", len(train_features))
+        logger.info("  Num train orig examples = %d", len(train_examples))
+        logger.info("  Num train split examples = %d", len(train_features))
         logger.info("  Batch size = %d", args.train_batch_size)
         logger.info("  Num steps = %d", num_train_steps)
 
         if args.do_validate and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
             logger.info("***** Dev data *****")
-            logger.info("  Num orig dev examples = %d", len(dev_examples))
-            logger.info("  Num split dev examples = %d", len(dev_features))
+            logger.info("  Num dev orig dev examples = %d", len(dev_examples))
+            logger.info("  Num dev split dev examples = %d", len(dev_features))
             logger.info("  Batch size = %d", args.predict_batch_size)
-            dev_evaluator = CoQAEvaluator(dev_examples)
+            # ground truth [!!! TO MODIFY !!!]
+            dev_json = json_utils.read_trivia_data(args.predict_data_file)
+            dev_ground_truth = trivia_dataset_utils.get_key_to_ground_truth(dev_json)
+            
 
         train_model(args, model, tokenizer, optimizer, train_examples, train_features,
-                    dev_examples, dev_features, dev_evaluator, device, n_gpu, t_total)
+                    dev_examples, dev_features, dev_ground_truth, device, n_gpu, t_total)
 
 
     # Evaluate trained model
@@ -475,11 +463,11 @@ def main():
         model_state_dict = torch.load(output_model_file)
         model = BertQA.from_pretrained(args.bert_model,
                                        state_dict=model_state_dict,
-                                       allow_yes_no=True)
+                                       allow_yes_no=False)
         model.to(device)
 
         # load data
-        test_examples = read_coqa_examples(
+        test_examples = read_quac_examples(
             input_file=args.predict_file,
             is_training=False,
             use_history=args.use_history,

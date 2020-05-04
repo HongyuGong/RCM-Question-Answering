@@ -319,7 +319,7 @@ def test_model(args, model, tokenizer, test_examples, test_features, device):
             #stop_probs.append(chunk_stop_probs[:])
 
             # find top answer texts for the current chunk
-            for i, example_index in enumerate(batch_eval_indices):
+            for i, example_index in enumerate(batch_test_indices):
                 stop_logits = chunk_stop_logits[i]
                 start_logits = chunk_start_logits[i].detach().cpu().tolist()
                 end_logits = chunk_end_logits[i].detach().cpu().tolist()

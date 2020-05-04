@@ -1,6 +1,6 @@
 """
 data_helper.py
- - utility functions to process data (CoQA)
+ - utility functions to process QuAC data
 """
 
 from __future__ import absolute_import
@@ -22,7 +22,9 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from transformers.tokenization_bert import whitespace_tokenize, BasicTokenizer, BertTokenizer
-from qa_util import _improve_answer_span, _get_best_indexes, get_final_text
+
+from data_helper.qa_util import _improve_answer_span, _get_best_indexes, \
+     get_final_text, _compute_softmax
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -365,7 +367,7 @@ def make_predictions(all_examples, all_features, all_results, n_best_size, \
             qid = example.example_id
             dia_id = qid.split("_q#")[0]
             validate_predictions[dia_id][qid] = nbest[0].text
-
+        else:
             total_scores = []
             for entry in nbest:
                 total_scores.append(entry.logit)
