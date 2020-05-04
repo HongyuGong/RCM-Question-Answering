@@ -49,7 +49,7 @@ stride_action_space = [-16, 16, 32, 64, 128]
 #stride_action_space = [128]
 
 def validate_model(args, model, tokenizer, dev_examples, dev_features,
-                   dev_dataloader, dev_evaluator, device):
+                   dev_dataloader, dev_evaluator, best_dev_score, device):
     all_results = []
     for dev_step, batch_dev_indices in enumerate(tqdm(dev_dataloader, desc="Evaluating")):
         batch_dev_features = [dev_features[ind] for ind in batch_dev_indices]
@@ -107,14 +107,14 @@ def validate_model(args, model, tokenizer, dev_examples, dev_features,
                                         args.verbose_logging, validate_flag=True)
     dev_scores = dev_evaluator.eval_fn(dev_predictions)
     dev_score = dev_scores['f1']
-    logger.info('step: {}, dev score: {}'.format(step, dev_score))
+    logger.info('dev score: {}'.format(dev_score))
     if (dev_score > best_dev_score):
         best_model_to_save = model.module if hasattr(model, 'module') else model
         best_output_model_file = os.path.join(args.output_dir, "best_pretrained_model.bin")
         torch.save(best_model_to_save.state_dict(), best_output_model_file)
         best_dev_score = max(best_dev_score, dev_score)
         logger.info("Best dev score: {}, saved to best_pretrained_model.bin".format(dev_score))
-        
+    return best_dev_score
 
 
 def train_model(args, model, tokenizer, optimizer, train_examples, train_features,
@@ -258,8 +258,8 @@ def train_model(args, model, tokenizer, optimizer, train_examples, train_feature
             # validation on dev data
             if args.do_validate and step % 499 == 0:
                 model.eval()
-                validate_model(args, model, tokenizer, dev_examples, dev_features,
-                               dev_dataloader, dev_evaluator, device)
+                best_dev_score = validate_model(args, model, tokenizer, dev_examples, dev_features,
+                                                dev_dataloader, dev_evaluator, best_dev_score, device)
                 model.train()
             
             if (step + 1) % args.gradient_accumulation_steps == 0:
@@ -656,9 +656,8 @@ def main():
             is_training=False,
             use_history=args.use_history,
             n_history=args.n_history)
-        cached_test_features_file = args.train_file+'_{0}_{1}_{2}_RCM_test'.format(
-            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_seq_length), \
-            str(args.max_query_length))
+        cached_test_features_file = args.predict_file+'_{0}_{1}_RCM_test'.format(
+            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_query_length))
         test_features = None
         try:
             with open(cached_test_features_file, "rb") as reader:
