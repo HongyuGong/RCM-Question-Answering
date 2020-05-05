@@ -37,8 +37,8 @@ class BertQA(BertPreTrainedModel):
     def forward(self, input_ids, token_type_ids=None, attention_mask=None,
                 start_positions=None, end_positions=None,
                 yes_no_flags=None, yes_no_answers=None):
-        outputs = self.bert(input_ids, token_type_ids, attention_mask,
-                                       output_all_encoded_layers=False)
+        outputs = self.bert(input_ids, attention_mask=attention_mask,
+                            token_type_ids=token_type_ids)
         sequence_output = outputs[0]
         sequence_output = self.dropout(sequence_output)
         sent_output = sequence_output.narrow(1, 0, 1)

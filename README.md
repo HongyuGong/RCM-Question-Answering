@@ -10,7 +10,7 @@ Required package:
 
 (2) torch;
 
-(3) [transformers by uggingface](https://github.com/huggingface/transformers).
+(3) [Transformers by Huggingface](https://github.com/huggingface/transformers).
 
 
 ## Data Preparation
@@ -53,9 +53,246 @@ Follow instructions [here](https://github.com/mandarjoshi90/triviaqa) to adapt T
 
 ## Training
 
-### Conversational Question Answering (CoQA)
+For the efficiency of model training, we try first-pretrain-then-train approach. The model is first pre-trained with fixed strides and no recurrence. Then the recurrent chunking mechanism is applied to further train the model to chunk documents with flexible strides and progapagte informaiton among segmenets with recurrence.
 
-Train CoQA model with supervised pre-training
+### 1. Conversational Question Answering (CoQA)
+
+Pretrain CoQA model.
+
+```bash
+python3 train/run_BERT_coqa.py
+--bert_model bert-large-uncased
+--output_dir OUTPUT_DIR/pretrained/
+--train_file DATA_DIR/coqa.train.josn
+--use_history
+--n_history -1
+--max_seq_length MAX_SEQ_LENGTH[256]
+--doc_stride 64
+--max_query_length 64
+--do_train
+--do_validate
+--train_batch_size 12
+--predict_batch_size 18
+--learning_rate 3e-5
+--num_train_epochs 2.5
+--max_answer_length 40
+--do_lower_case
+```
+
+Recurrent chunking mechamism (RCM) for CoQA.
+
+```bash
+python3 train/run_RCM_coqa.py 
+--bert_model bert-large-uncased 
+--output_dir OUTPUT_DIR/rl/
+--train_file DATA_DIR/coqa.train.json
+--use_history
+--n_history -1
+--max_seq_length MAX_SEQ_LENGTH
+--max_query_length 64
+--doc_stride 64
+--do_train
+--do_validate
+--do_lower_case
+--reload_model_path OUTPUT_DIR/pretrained/best_RCM_model.bin
+--recur_type RECUR_TYPE
+--train_batch_size 8
+--learning_rate 3e-5
+--num_train_epochs 2.0
+--max_read_times 3
+--max_answer_length 40
+```
+
+* MAX_SEQ_LENGTH can be integers no larger than 512
+
+* RECUR_TYPE can be "gated" or "lstm"
+
+* OUTPUD_DIR: the path where the trained model will be saved
+
+
+# Prediction
+
+```bash
+python3 train/run_RCM_coqa.py 
+--bert_model bert-large-uncased 
+--output_dir OUTPUT_DIR/rl/
+--predict_file DATA_DIR/coqa.dev.json
+--use_history
+--n_history -1
+--max_seq_length MAX_SEQ_LENGTH
+--max_query_length 64
+--doc_stride DOC_STRIDE
+--do_predict
+--do_lower_case
+--recur_type RECUR_TYPE
+--predict_batch_size 12
+--max_read_times 3
+--max_answer_length 40
+```
+
+* Predictions will be saved in OUTPUT_DIR/rl/
+
+
+### 2. Question Answering in Context (QuAC)
+
+Pretrain QuAC model.
+
+```bash
+python3 train/run_BERT_quac.py
+--bert_model bert-large-uncased
+--output_dir OUTPUT_DIR/pretrained/
+--train_file DATA_DIR/quac.train.josn
+--use_history
+--n_history -1
+--max_seq_length MAX_SEQ_LENGTH[256]
+--doc_stride 64
+--max_query_length 64
+--do_train
+--do_validate
+--train_batch_size 12
+--predict_batch_size 18
+--learning_rate 3e-5
+--num_train_epochs 2.5
+--max_answer_length 40
+--do_lower_case
+```
+
+Recurrent chunking mechamism (RCM) for CoQA.
+
+```bash
+python3 train/run_RCM_quac.py 
+--bert_model bert-large-uncased 
+--output_dir OUTPUT_DIR/rl/
+--train_file DATA_DIR/quac.train.json
+--use_history
+--n_history -1
+--max_seq_length MAX_SEQ_LENGTH
+--max_query_length 64
+--doc_stride 64
+--do_train
+--do_validate
+--do_lower_case
+--reload_model_path OUTPUT_DIR/pretrained/best_RCM_model.bin
+--recur_type RECUR_TYPE
+--train_batch_size 8
+--learning_rate 3e-5
+--num_train_epochs 2.0
+--max_read_times 3
+--max_answer_length 40
+```
+
+* MAX_SEQ_LENGTH can be integers no larger than 512
+
+* RECUR_TYPE can be "gated" or "lstm"
+
+* OUTPUD_DIR: the path where the trained model will be saved
+
+
+# Prediction
+
+```bash
+python3 train/run_RCM_quac.py 
+--bert_model bert-large-uncased 
+--output_dir OUTPUT_DIR/rl/
+--predict_file DATA_DIR/quac.dev.json
+--use_history
+--n_history -1
+--max_seq_length MAX_SEQ_LENGTH
+--max_query_length 64
+--doc_stride DOC_STRIDE
+--do_predict
+--do_lower_case
+--recur_type RECUR_TYPE
+--predict_batch_size 12
+--max_read_times 3
+--max_answer_length 40
+```
+
+* Predictions will be saved in OUTPUT_DIR/rl/
+
+
+
+### 3. 
+
+Pretrain Trivia model.
+
+```bash
+python3 train/run_BERT_trivia.py
+--bert_model bert-large-uncased
+--output_dir OUTPUT_DIR/pretrained/
+--train_file DATA_DIR/trivia.train.josn
+--use_history
+--n_history -1
+--max_seq_length MAX_SEQ_LENGTH[256]
+--doc_stride 64
+--max_query_length 64
+--do_train
+--do_validate
+--train_batch_size 12
+--predict_batch_size 18
+--learning_rate 3e-5
+--num_train_epochs 2.5
+--max_answer_length 40
+--do_lower_case
+```
+
+Recurrent chunking mechamism (RCM) for Trivia.
+
+```bash
+python3 train/run_RCM_trivia.py 
+--bert_model bert-large-uncased 
+--output_dir OUTPUT_DIR/rl/
+--train_file DATA_DIR/trivia.train.json
+--use_history
+--n_history -1
+--max_seq_length MAX_SEQ_LENGTH
+--max_query_length 64
+--doc_stride 64
+--do_train
+--do_validate
+--do_lower_case
+--reload_model_path OUTPUT_DIR/pretrained/best_RCM_model.bin
+--recur_type RECUR_TYPE
+--train_batch_size 8
+--learning_rate 3e-5
+--num_train_epochs 2.0
+--max_read_times 3
+--max_answer_length 40
+```
+
+* MAX_SEQ_LENGTH can be integers no larger than 512
+
+* RECUR_TYPE can be "gated" or "lstm"
+
+* OUTPUD_DIR: the path where the trained model will be saved
+
+
+# Prediction
+
+```bash
+python3 train/run_RCM_trivia.py 
+--bert_model bert-large-uncased 
+--output_dir OUTPUT_DIR/rl/
+--predict_file DATA_DIR/trivia.dev.json
+--use_history
+--n_history -1
+--max_seq_length MAX_SEQ_LENGTH
+--max_query_length 64
+--doc_stride DOC_STRIDE
+--do_predict
+--do_lower_case
+--recur_type RECUR_TYPE
+--predict_batch_size 12
+--max_read_times 3
+--max_answer_length 40
+```
+
+* Predictions will be saved in OUTPUT_DIR/rl/
+
+
+## Ablation Study
+
+Train CoQA model with recurrence but without flexible strides
 
 ```bash
 python3 train/run_RCM_coqa.py 
@@ -75,57 +312,6 @@ python3 train/run_RCM_coqa.py
 --train_batch_size 8
 --learning_rate 3e-5
 --num_train_epochs 2.0
---max_read_times 3
---max_answer_length 40
-```
-
-* MAX_SEQ_LENGTH can be integers no larger than 512
-
-* RECUR_TYPE can be "gated" or "lstm"
-
-
-Reinforcement learning
-
-```bash
-python3 train/run_RCM_coqa.py 
---bert_model bert-large-uncased 
---output_dir OUTPUT_DIR/rl/
---train_file DATA_DIR/coqa.train.json
---use_history
---n_history -1
---max_seq_length MAX_SEQ_LENGTH
---max_query_length 64
---doc_stride 64
---do_train
---do_validate
---do_lower_case
---reload_model_path OUTPUT_DIR/pretrained/best_RCM_model.bin
---recur_type RECUR_TYPE
---supervised_pretraining
---train_batch_size 8
---learning_rate 3e-5
---num_train_epochs 2.0
---max_read_times 3
---max_answer_length 40
-```
-
-
-# Prediction
-
-```bash
-python3 train/run_RCM_coqa.py 
---bert_model bert-large-uncased 
---output_dir OUTPUT_DIR/rl/
---predict_file DATA_DIR/coqa.dev.json
---use_history
---n_history -1
---max_seq_length MAX_SEQ_LENGTH
---max_query_length 64
---doc_stride DOC_STRIDE
---do_predict
---do_lower_case
---recur_type RECUR_TYPE
---predict_batch_size 12
 --max_read_times 3
 --max_answer_length 40
 ```

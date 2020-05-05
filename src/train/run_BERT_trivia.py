@@ -107,6 +107,7 @@ def train_model(args, model, tokenizer, optimizer, train_examples, train_feature
     # ****************** Train & Validate ******************
     best_dev_score = 0.0
     epoch = 0
+    global_step = 0
     model.train()
     for _ in trange(int(args.num_train_epochs), desc="Epoch"):
         training_loss = 0.0
@@ -130,7 +131,7 @@ def train_model(args, model, tokenizer, optimizer, train_examples, train_feature
                 training_loss = 0.0
 
             # validation
-            if (epoch >=1 and step % 500 == 499):
+            if step % 500 == 499:
                 model.eval()
                 best_dev_score = validate_model(args, model, tokenizer, dev_examples, dev_features,
                                                 dev_dataloader, dev_ground_truth, best_dev_score, device)

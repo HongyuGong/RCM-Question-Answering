@@ -23,7 +23,8 @@ from torch.utils.data import TensorDataset, DataLoader, RandomSampler, Sequentia
 from torch.utils.data.distributed import DistributedSampler
 from transformers.tokenization_bert import whitespace_tokenize, BasicTokenizer, BertTokenizer
 
-from data_helper.qa_util import _improve_answer_span, _get_best_indexes, get_final_text
+from data_helper.qa_util import _improve_answer_span, _get_best_indexes, get_final_text, \
+     _check_is_max_context, _compute_softmax
 from data_helper.data_helper_coqa import CoQAExample
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -187,7 +188,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
                     logger.info("end_position: %d" % (end_position))
                     logger.info("answer: %s" % (answer_text))
             features.append(
-                InputFeatures(
+                ChunkFeature(
                     unique_id=unique_id,
                     example_index=example_index,
                     doc_span_index=doc_span_index,
