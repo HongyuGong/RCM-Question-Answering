@@ -57,7 +57,7 @@ For the efficiency of model training, we try first-pretrain-then-train approach.
 
 ### 1. Conversational Question Answering (CoQA)
 
-Pretrain CoQA model.
+#### Pretrain CoQA model
 
 ```bash
 python3 train/run_BERT_coqa.py
@@ -79,7 +79,7 @@ python3 train/run_BERT_coqa.py
 --do_lower_case
 ```
 
-Recurrent chunking mechamism (RCM) for CoQA.
+#### Recurrent chunking mechamism (RCM) for CoQA.
 
 ```bash
 python3 train/run_RCM_coqa.py 
@@ -110,7 +110,7 @@ python3 train/run_RCM_coqa.py
 * OUTPUD_DIR: the path where the trained model will be saved
 
 
-# Prediction
+#### Prediction
 
 ```bash
 python3 train/run_RCM_coqa.py 
@@ -135,7 +135,7 @@ python3 train/run_RCM_coqa.py
 
 ### 2. Question Answering in Context (QuAC)
 
-Pretrain QuAC model.
+#### Pretrain QuAC model
 
 ```bash
 python3 train/run_BERT_quac.py
@@ -157,7 +157,7 @@ python3 train/run_BERT_quac.py
 --do_lower_case
 ```
 
-Recurrent chunking mechamism (RCM) for CoQA.
+#### Recurrent chunking mechamism (RCM) for QuAC
 
 ```bash
 python3 train/run_RCM_quac.py 
@@ -188,7 +188,7 @@ python3 train/run_RCM_quac.py
 * OUTPUD_DIR: the path where the trained model will be saved
 
 
-# Prediction
+#### Prediction
 
 ```bash
 python3 train/run_RCM_quac.py 
@@ -211,10 +211,9 @@ python3 train/run_RCM_quac.py
 * Predictions will be saved in OUTPUT_DIR/rl/
 
 
+### 3. TriviaQA
 
-### 3. 
-
-Pretrain Trivia model.
+#### Pretrain Trivia model
 
 ```bash
 python3 train/run_BERT_trivia.py
@@ -236,7 +235,7 @@ python3 train/run_BERT_trivia.py
 --do_lower_case
 ```
 
-Recurrent chunking mechamism (RCM) for Trivia.
+#### Recurrent chunking mechamism (RCM) for Trivia
 
 ```bash
 python3 train/run_RCM_trivia.py 
@@ -267,7 +266,7 @@ python3 train/run_RCM_trivia.py
 * OUTPUD_DIR: the path where the trained model will be saved
 
 
-# Prediction
+#### Prediction
 
 ```bash
 python3 train/run_RCM_trivia.py 
