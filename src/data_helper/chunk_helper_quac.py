@@ -76,7 +76,7 @@ def convert_examples_to_features(examples, tokenizer, max_seq_length,
     features = []
     for (example_index, example) in enumerate(examples):
         # query_tokens
-        all_query_tokens = [tokenizer.tokenize(question_text) for question_text in example.question_texts]
+        all_query_tokens = [tokenizer.tokenize(question_text) for question_text in example.questions]
         if append_history:
             all_query_tokens = all_query_tokens[::-1]
         flat_all_query_tokens = []
@@ -230,7 +230,7 @@ def make_predictions(all_examples, all_features, all_results, n_best_size,
         "PrelimPrediction",
         ["feature_index", "start_index", "end_index", "text", "logit"])
 
-    validate_predictions = dict()
+    validate_predictions = collections.defaultdict(dict)
     all_predictions = []
     all_nbest_json = []
     for (example_index, example) in enumerate(all_examples):

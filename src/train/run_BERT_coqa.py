@@ -76,11 +76,6 @@ def validate_model(args, model, tokenizer, dev_examples, dev_features,
     return best_dev_score
 
 
-    
-
-
-
-
 def train_model(args, model, tokenizer, optimizer, train_examples, train_features,
                 dev_examples, dev_features, dev_evaluator, device, n_gpu, t_total):
     all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)

@@ -10,15 +10,15 @@ class QuACEvaluator():
         self.gold_data = QuACEvaluator.gold_answers_to_dict(examples)
 
     @staticmethod
-    def gold_answers_to_dict(example):
-        self.gold_data = defaultdict(dict)
+    def gold_answers_to_dict(examples):
+        gold_data = defaultdict(dict)
         for example in examples:
             qid = example.example_id
             dia_id = qid.split("_q#")[0]
-            ids = example_id.split("_q#")
-            self.gold_data[dia_id][qid] = example
+            gold_data[dia_id][qid] = example
+        return gold_data
 
-    def eval_fn(self, pred_data):
+    def eval_fn(self, pred_data, verbose=False):
         span_overlap_stats = Counter()
         sentence_overlap = 0.
         para_overlap = 0.
@@ -36,8 +36,8 @@ class QuACEvaluator():
             for qid in self.gold_data[dia_id]:
                 example = self.gold_data[dia_id][qid]
                 val_spans = [example.orig_answer_text]
-                val_spans = handle_cannot(val_spans)
-                hf1 = leave_one_out(val_spans)
+                val_spans = QuACEvaluator.handle_cannot(val_spans)
+                hf1 = QuACEvaluator.leave_one_out(val_spans)
 
                 if dia_id not in pred_data or qid not in pred_data[dia_id]:
                     print(dia_id, qid, 'no prediction for this dialogue id')
@@ -51,11 +51,11 @@ class QuACEvaluator():
                         human_f1.append(hf1)
                     continue
                 
-                pred_span = model_results[dia_id][qid]
+                pred_span = pred_data[dia_id][qid]
                 context = " ".join(example.doc_tokens)
-                max_overlap, _ = metric_max_over_ground_truths( \
+                max_overlap, _ = QuACEvaluator.metric_max_over_ground_truths( \
                     pred_span, val_spans, context)
-                max_f1 = leave_one_out_max( \
+                max_f1 = QuACEvaluator.leave_one_out_max( \
                     pred_span, val_spans, context)
                 unfiltered_f1s.append(max_f1)
                 
@@ -81,28 +81,28 @@ class QuACEvaluator():
                 total_qs += 1.
             DHEQ += good_dial
             total_dials += 1
-    DHEQ_score = 100.0 * DHEQ / total_dials
-    HEQ_score = 100.0 * HEQ / total_qs
-    all_f1s = sum(f1_stats.values(), [])
-    overall_f1 = 100.0 * sum(all_f1s) / len(all_f1s)
-    unfiltered_f1 = 100.0 * sum(unfiltered_f1s) / len(unfiltered_f1s)
-    #yesno_score = (100.0 * sum(yes_nos) / len(yes_nos))
-    #followup_score = (100.0 * sum(followups) / len(followups))
-    unanswerable_score = (100.0 * sum(unanswerables) / len(unanswerables))
-    metric_json = {"unfiltered_f1": unfiltered_f1, "f1": overall_f1, "HEQ": HEQ_score, \
-                   "DHEQ": DHEQ_score, "unanswerable_acc": unanswerable_score}
-    if verbose:
+        DHEQ_score = 100.0 * DHEQ / total_dials
+        HEQ_score = 100.0 * HEQ / total_qs
+        all_f1s = sum(f1_stats.values(), [])
+        overall_f1 = 100.0 * sum(all_f1s) / len(all_f1s)
+        unfiltered_f1 = 100.0 * sum(unfiltered_f1s) / len(unfiltered_f1s)
+        #yesno_score = (100.0 * sum(yes_nos) / len(yes_nos))
+        #followup_score = (100.0 * sum(followups) / len(followups))
+        unanswerable_score = (100.0 * sum(unanswerables) / len(unanswerables))
+        metric_json = {"unfiltered_f1": unfiltered_f1, "f1": overall_f1, "HEQ": HEQ_score, \
+                       "DHEQ": DHEQ_score, "unanswerable_acc": unanswerable_score}
+        if verbose:
+            print("=======================")
+            QuACEvaluator.display_counter('Overlap Stats', span_overlap_stats, f1_stats)
         print("=======================")
-        display_counter('Overlap Stats', span_overlap_stats, f1_stats)
-    print("=======================")
-    print('Overall F1: %.1f' % overall_f1)
-    print('Unfiltered F1 ({0:d} questions): {1:.1f}'.format(len(unfiltered_f1s), unfiltered_f1))
-    print('Accuracy On Unanswerable Questions: {0:.1f} %% ({1:d} questions)'.format(unanswerable_score, len(unanswerables)))
-    print('Human F1: %.1f' % (100.0 * sum(human_f1) / len(human_f1)))
-    print('Model F1 >= Human F1 (Questions): %d / %d, %.1f%%' % (HEQ, total_qs, 100.0 * HEQ / total_qs))
-    print('Model F1 >= Human F1 (Dialogs): %d / %d, %.1f%%' % (DHEQ, total_dials, 100.0 * DHEQ / total_dials))
-    print("=======================")
-    return metric_json    
+        print('Overall F1: %.1f' % overall_f1)
+        print('Unfiltered F1 ({0:d} questions): {1:.1f}'.format(len(unfiltered_f1s), unfiltered_f1))
+        print('Accuracy On Unanswerable Questions: {0:.1f} %% ({1:d} questions)'.format(unanswerable_score, len(unanswerables)))
+        print('Human F1: %.1f' % (100.0 * sum(human_f1) / len(human_f1)))
+        print('Model F1 >= Human F1 (Questions): %d / %d, %.1f%%' % (HEQ, total_qs, 100.0 * HEQ / total_qs))
+        print('Model F1 >= Human F1 (Dialogs): %d / %d, %.1f%%' % (DHEQ, total_dials, 100.0 * DHEQ / total_dials))
+        print("=======================")
+        return metric_json    
 
         
     @staticmethod
@@ -125,8 +125,8 @@ class QuACEvaluator():
 
     @staticmethod
     def f1_score(prediction, ground_truth):
-        prediction_tokens = normalize_answer(prediction).split()
-        ground_truth_tokens = normalize_answer(ground_truth).split()
+        prediction_tokens = QuACEvaluator.normalize_answer(prediction).split()
+        ground_truth_tokens = QuACEvaluator.normalize_answer(ground_truth).split()
         common = Counter(prediction_tokens) & Counter(ground_truth_tokens)
         num_same = sum(common.values())
         if num_same == 0:
@@ -138,7 +138,7 @@ class QuACEvaluator():
 
     @staticmethod
     def exact_match_score(prediction, ground_truth):
-        return (normalize_answer(prediction) == normalize_answer(ground_truth))
+        return (QuACEvaluator.normalize_answer(prediction) == QuACEvaluator.normalize_answer(ground_truth))
 
     @staticmethod
     def handle_cannot(refs):
@@ -168,7 +168,7 @@ class QuACEvaluator():
             for j in range(len(refs)):
                 if i == j:
                     continue
-                f1_ij = f1_score(refs[i], refs[j])
+                f1_ij = QuACEvaluator.f1_score(refs[i], refs[j])
                 if f1_ij > m_f1:
                     m_f1 = f1_ij
             t_f1 += m_f
@@ -177,7 +177,7 @@ class QuACEvaluator():
     @staticmethod
     def leave_one_out_max(prediction, ground_truths, article):
         if len(ground_truths) == 1:
-            return metric_max_over_ground_truths(prediction, ground_truths, article)[1]
+            return QuACEvaluator.metric_max_over_ground_truths(prediction, ground_truths, article)[1]
         else:
             t_f1 = []
             # leave out one ref every time
@@ -185,7 +185,7 @@ class QuACEvaluator():
                 idxes = list(range(len(ground_truths)))
                 idxes.pop(i)
                 refs = [ground_truths[z] for z in idxes]
-                t_f1.append(metric_max_over_ground_truths(prediction, refs, article)[1])
+                t_f1.append(QuACEvaluator.metric_max_over_ground_truths(prediction, refs, article)[1])
         return 1.0 * sum(t_f1) / len(t_f1)
 
     @staticmethod
@@ -194,7 +194,7 @@ class QuACEvaluator():
             if pred_span == 'CANNOTANSWER':
                 return 'Exact match', 1.0
             return 'No overlap', 0.
-        fscore = f1_score(pred_span, gt_span)
+        fscore = QuACEvaluator.f1_score(pred_span, gt_span)
         pred_start = text.find(pred_span)
         gt_start = text.find(gt_span)
 
@@ -204,10 +204,10 @@ class QuACEvaluator():
         pred_end = pred_start + len(pred_span)
         gt_end = gt_start + len(gt_span)
 
-        fscore = f1_score(pred_span, gt_span)
-        overlap = is_overlapping(pred_start, pred_end, gt_start, gt_end)
+        fscore = QuACEvaluator.f1_score(pred_span, gt_span)
+        overlap = QuACEvaluator.is_overlapping(pred_start, pred_end, gt_start, gt_end)
 
-        if exact_match_score(pred_span, gt_span):
+        if QuACEvaluator.exact_match_score(pred_span, gt_span):
             return 'Exact match', fscore
         if overlap:
             return 'Partial overlap', fscore
@@ -217,9 +217,9 @@ class QuACEvaluator():
 
     @staticmethod
     def metric_max_over_ground_truths(prediction, ground_truths, article):
-        cores_for_ground_truths = []
+        scores_for_ground_truths = []
         for ground_truth in ground_truths:
-            score = compute_span_overlap(prediction, ground_truth, article)
+            score = QuACEvaluator.compute_span_overlap(prediction, ground_truth, article)
             scores_for_ground_truths.append(score)
         return max(scores_for_ground_truths, key=lambda x: x[1])
 

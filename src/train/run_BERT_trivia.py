@@ -32,7 +32,7 @@ from data_helper.chunk_helper_trivia import convert_examples_to_features, RawRes
      make_predictions, write_predictions
 import data_helper.json_utils
 import data_helper.trivia_dataset_utils
-from eval_helper.eval_triviaqa import evaluate_triviaqa
+from eval_helper.eval_triviaqa import TriviaEvaluator
 
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 
 def validate_model(args, model, tokenizer, dev_examples, dev_features,
-                   dev_dataloader, dev_ground_truth, best_dev_score, device):
+                   dev_dataloader, dev_evaluator, best_dev_score, device):
     all_results = []
     for input_ids, input_mask, segment_ids, example_indices in tqdm(dev_dataloader, desc="Evaluating"):
         input_ids = input_ids.to(device)
@@ -63,7 +63,8 @@ def validate_model(args, model, tokenizer, dev_examples, dev_features,
     dev_predictions = make_predictions(dev_examples, dev_features, all_results,
                                         args.n_best_size, args.max_answer_length, args.do_lower_case,
                                         args.verbose_logging, validate_flag=True)
-    dev_scores = evaluate_triviaqa(dev_ground_truth, dev_predictions)
+    #dev_scores = evaluate_triviaqa(dev_ground_truth, dev_predictions)
+    dev_scores = dev_evaluator.evaluate_triviaqa(dev_predictions)
     dev_score = dev_scores['f1']
     logger.info('dev score: {}'.format(dev_score))
     if dev_score > best_dev_score:
@@ -76,7 +77,7 @@ def validate_model(args, model, tokenizer, dev_examples, dev_features,
 
 
 def train_model(args, model, tokenizer, optimizer, train_examples, train_features,
-                dev_examples, dev_features, dev_ground_truth, device, n_gpu, t_total):
+                dev_examples, dev_features, dev_evaluator, device, n_gpu, t_total):
     all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
     all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
     all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
@@ -134,7 +135,7 @@ def train_model(args, model, tokenizer, optimizer, train_examples, train_feature
             if step % 500 == 499:
                 model.eval()
                 best_dev_score = validate_model(args, model, tokenizer, dev_examples, dev_features,
-                                                dev_dataloader, dev_ground_truth, best_dev_score, device)
+                                                dev_dataloader, dev_evaluator, best_dev_score, device)
                 model.train()
 
             # change learning rate
@@ -444,18 +445,16 @@ def main():
         logger.info("  Batch size = %d", args.train_batch_size)
         logger.info("  Num steps = %d", num_train_steps)
 
+        dev_evaluator = None
         if args.do_validate and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
             logger.info("***** Dev data *****")
             logger.info("  Num dev orig dev examples = %d", len(dev_examples))
             logger.info("  Num dev split dev examples = %d", len(dev_features))
             logger.info("  Batch size = %d", args.predict_batch_size)
-            # ground truth [!!! TO MODIFY !!!]
-            dev_json = json_utils.read_trivia_data(args.predict_data_file)
-            dev_ground_truth = trivia_dataset_utils.get_key_to_ground_truth(dev_json)
-            
+            dev_evaluator = TriviaEvaluator(dev_examples)            
 
         train_model(args, model, tokenizer, optimizer, train_examples, train_features,
-                    dev_examples, dev_features, dev_ground_truth, device, n_gpu, t_total)
+                    dev_examples, dev_features, dev_evaluator, device, n_gpu, t_total)
 
 
     # Evaluate trained model

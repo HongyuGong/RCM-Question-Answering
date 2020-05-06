@@ -389,9 +389,7 @@ def main():
     parser.add_argument("--do_predict", action='store_true', help="Whether to run eval on the dev set.")
     # supervised & reinforcement learning
     parser.add_argument("--supervised_pretraining", action='store_true', help="Whether to do supervised pretraining.")
-    #parser.add_argument("--reinforcement_training", action='store_true', help="Whether to do reinforcement learning.")
-    #parser.add_argument("--reload_model", action='store_true', help="Load pretrained model for tuning.")
-    parser.add_argument("--reload_model_path", type=str, help="Path of pretrained model.")
+    #parser.add_argument("--reload_model_path", type=str, help="Path of pretrained model.")
     parser.add_argument("--recur_type", type=str, default="gated", help="Recurrence model type.")
     # model parameters
     parser.add_argument("--train_batch_size", default=32, type=int, help="Total batch size for training.")
@@ -486,20 +484,23 @@ def main():
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
     # Prepare model
-    if args.reload_model_path is not None and os.path.isfile(args.reload_model_path):
-        logger.info("Reloading pretrained model from {}".format(args.reload_model_path))
-        model_state_dict = torch.load(args.reload_model_path)
+    #if args.reload_model_path is not None and os.path.isfile(args.reload_model_path):
+    if args.pretrained_model_path is not None and os.path.isfile(args.pretrained_model_path):
+        logger.info("Reloading pretrained model from {}".format(args.pretrained_model_path))
+        model_state_dict = torch.load(args.pretrained_model_path)
         model = RCMBert.from_pretrained(args.bert_model,
                                         state_dict=model_state_dict,
                                         action_num=len(stride_action_space),
                                         recur_type=args.recur_type,
                                         allow_yes_no=True)
-    elif args.pretrained_model_path is not None and os.path.isdir(args.pretrained_model_path):
+    """
+    elif args.pretrained_model_path is not None and os.path.isfile(args.pretrained_model_path):
         logger.info("Reloading a basic model from  {}".format(args.pretrained_model_path))
         model = RCMBert.from_pretrained(args.pretrained_model_path,
                                         action_num=len(stride_action_space),
                                         recur_type=args.recur_type,
                                         allow_yes_no=True)
+    """
     else:
         logger.info("Training a new model from scratch")
         model = RCMBert.from_pretrained(args.bert_model,
