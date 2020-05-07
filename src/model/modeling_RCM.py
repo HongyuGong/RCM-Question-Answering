@@ -201,9 +201,10 @@ class RCMBert(BertPreTrainedModel):
                 stop_flags = stop_flags.squeeze(-1)
 
             # stop loss
-            stop_loss_fct = CrossEntropyLoss(reduction='mean').cuda()
+            stop_loss_fct = CrossEntropyLoss(reduction='mean')
             stop_loss = stop_loss_fct(stop_logits, stop_flags)
 
+            # answer loss
             if self.allow_yes_no and yes_no_flags is not None and \
                yes_no_answers is not None:
                 # ground truth
@@ -214,7 +215,7 @@ class RCMBert(BertPreTrainedModel):
                     
                 # for all samples: classify yes-no / wh- question
                 # this is purely query-dependent, and not influenced by stop_flags
-                flag_loss_fct = CrossEntropyLoss(reduction='mean').cuda()
+                flag_loss_fct = CrossEntropyLoss(reduction='mean')
                 yes_no_flag_loss = flag_loss_fct(yes_no_flag_logits, yes_no_flags)
                 answer_loss = 0.25 * yes_no_flag_loss
                 
@@ -231,7 +232,7 @@ class RCMBert(BertPreTrainedModel):
                 ignored_index = selected_start_logits.size(1)
                 selected_start_positions.clamp_(0, ignored_index)
                 selected_end_positions.clamp_(0, ignored_index)
-                loss_fct = CrossEntropyLoss(ignore_index=ignored_index).cuda()
+                loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
                 if (selected_start_positions.size(0) > 0):
                     start_loss = loss_fct(selected_start_logits, selected_start_positions)
                     end_loss = loss_fct(selected_end_logits, selected_end_positions)
@@ -241,7 +242,7 @@ class RCMBert(BertPreTrainedModel):
                 # CrossEntropyLoss: input: (seq_len, C), target: (seq_len, )
                 selected_yes_no_ans_logits = yes_no_ans_logits.index_select(0, yes_no_indices)
                 selected_yes_no_answers = yes_no_answers.index_select(0, yes_no_indices)
-                ans_loss_fct = CrossEntropyLoss(reduction='mean').cuda()
+                ans_loss_fct = CrossEntropyLoss(reduction='mean')
                 if (selected_yes_no_ans_logits.size(0) > 0):
                     yes_no_ans_loss = ans_loss_fct(selected_yes_no_ans_logits, \
                                                    selected_yes_no_answers)
@@ -255,10 +256,10 @@ class RCMBert(BertPreTrainedModel):
                 ignored_index = start_logits.size(1)
                 start_positions.clamp_(0, ignored_index)
                 end_positions.clamp_(0, ignored_index)
-                loss_fct = CrossEntropyLoss(ignore_index=ignored_index).cuda()
+                loss_fct = CrossEntropyLoss(ignore_index=ignored_index)
                 start_loss = loss_fct(start_logits, start_positions)
                 end_loss = loss_fct(end_logits, end_positions)
-                answer_loss += 0.5 * start_loss + 0.5 * end_loss
+                answer_loss = 0.5 * start_loss + 0.5 * end_loss
                 
                 return stop_logits, sampled_stride_inds, sampled_stride_log_probs, \
                        start_logits, end_logits, cur_hidden_states, stop_loss, answer_loss

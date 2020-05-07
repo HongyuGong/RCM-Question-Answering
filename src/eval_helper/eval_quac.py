@@ -33,6 +33,7 @@ class QuACEvaluator():
         #followups = []
         unanswerables = []
         for dia_id in self.gold_data:
+            good_dial = 1.
             for qid in self.gold_data[dia_id]:
                 example = self.gold_data[dia_id][qid]
                 val_spans = [example.orig_answer_text]

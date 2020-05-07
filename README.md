@@ -94,10 +94,10 @@ python3 train/run_RCM_coqa.py
 --do_train
 --do_validate
 --do_lower_case
---reload_model_path OUTPUT_DIR/pretrained/best_RCM_model.bin
+--pretrained_model_path OUTPUT_DIR/pretrained/best_RCM_model.bin
 --recur_type RECUR_TYPE
 --train_batch_size 8
---learning_rate 3e-5
+--learning_rate 1e-5
 --num_train_epochs 2.0
 --max_read_times 3
 --max_answer_length 40
@@ -141,7 +141,7 @@ python3 train/run_RCM_coqa.py
 python3 train/run_BERT_quac.py
 --bert_model bert-large-uncased
 --output_dir OUTPUT_DIR/pretrained/
---train_file DATA_DIR/quac.train.josn
+--train_file DATA_DIR/train_v0.2.json
 --use_history
 --n_history -1
 --max_seq_length MAX_SEQ_LENGTH[256]
@@ -163,7 +163,7 @@ python3 train/run_BERT_quac.py
 python3 train/run_RCM_quac.py 
 --bert_model bert-large-uncased 
 --output_dir OUTPUT_DIR/rl/
---train_file DATA_DIR/quac.train.json
+--train_file DATA_DIR/train_v0.2.json
 --use_history
 --n_history -1
 --max_seq_length MAX_SEQ_LENGTH
@@ -172,10 +172,10 @@ python3 train/run_RCM_quac.py
 --do_train
 --do_validate
 --do_lower_case
---reload_model_path OUTPUT_DIR/pretrained/best_RCM_model.bin
+--pretrained_model_path OUTPUT_DIR/pretrained/best_RCM_model.bin
 --recur_type RECUR_TYPE
 --train_batch_size 8
---learning_rate 3e-5
+--learning_rate 1e-5
 --num_train_epochs 2.0
 --max_read_times 3
 --max_answer_length 40
@@ -194,7 +194,7 @@ python3 train/run_RCM_quac.py
 python3 train/run_RCM_quac.py 
 --bert_model bert-large-uncased 
 --output_dir OUTPUT_DIR/rl/
---predict_file DATA_DIR/quac.dev.json
+--predict_file DATA_DIR/val_v0.2.json
 --use_history
 --n_history -1
 --max_seq_length MAX_SEQ_LENGTH
@@ -250,10 +250,10 @@ python3 train/run_RCM_trivia.py
 --do_train
 --do_validate
 --do_lower_case
---reload_model_path OUTPUT_DIR/pretrained/best_RCM_model.bin
+--pretrained_model_path OUTPUT_DIR/pretrained/best_RCM_model.bin
 --recur_type RECUR_TYPE
 --train_batch_size 8
---learning_rate 3e-5
+--learning_rate 1e-5
 --num_train_epochs 2.0
 --max_read_times 3
 --max_answer_length 40

@@ -109,10 +109,10 @@ def validate_model(args, model, tokenizer, dev_examples, dev_features,
     logger.info('dev score: {}'.format(dev_score))
     if (dev_score > best_dev_score):
         best_model_to_save = model.module if hasattr(model, 'module') else model
-        best_output_model_file = os.path.join(args.output_dir, "best_pretrained_model.bin")
+        best_output_model_file = os.path.join(args.output_dir, "best_RCM_model.bin")
         torch.save(best_model_to_save.state_dict(), best_output_model_file)
         best_dev_score = max(best_dev_score, dev_score)
-        logger.info("Best dev score: {}, saved to best_pretrained_model.bin".format(dev_score))
+        logger.info("Best dev score: {}, saved to best_RCM_model.bin".format(dev_score))
     return best_dev_score
 
 
@@ -471,8 +471,7 @@ def main():
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
     # Prepare model
-    #if args.reload_model_path is not None and os.path.isfile(args.reload_model_path):
-    if args.pretrained_model_path is not None and os.path.isdir(args.pretrained_model_path):
+    if args.pretrained_model_path is not None and os.path.isfile(args.pretrained_model_path):
         logger.info("Reloading pretrained model from {}".format(args.pretrained_model_path))
         model_state_dict = torch.load(args.pretrained_model_path)
         model = RCMBert.from_pretrained(args.bert_model,
@@ -480,14 +479,6 @@ def main():
                                         action_num=len(stride_action_space),
                                         recur_type=args.recur_type,
                                         allow_yes_no=False)
-    """
-    elif args.pretrained_model_path is not None and os.path.isdir(args.pretrained_model_path):
-        logger.info("Reloading a basic model from  {}".format(args.pretrained_model_path))
-        model = RCMBert.from_pretrained(args.pretrained_model_path,
-                                        action_num=len(stride_action_space),
-                                        recur_type=args.recur_type,
-                                        allow_yes_no=False)
-    """
     else:
         logger.info("Training a new model from scratch")
         model = RCMBert.from_pretrained(args.bert_model,
@@ -578,12 +569,10 @@ def main():
                              t_total=t_total)
 
     if args.do_train:
-        cached_train_features_file = args.train_file+'_{0}_{1}_{2}_RCM_train'.format(
-            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_seq_length), \
-            str(args.max_query_length))
-        cached_dev_features_file = args.train_file+'_{0}_{1}_{2}_RCM_dev'.format(
-            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_seq_length), \
-            str(args.max_query_length))
+        cached_train_features_file = args.train_file+'_{0}_{1}_RCM_train'.format(
+            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_query_length))
+        cached_dev_features_file = args.train_file+'_{0}_{1}_RCM_dev'.format(
+            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_query_length))
         train_features = None
         dev_features = None
         try:
@@ -632,7 +621,7 @@ def main():
 
     if args.do_predict and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
         # load model
-        output_model_file = os.path.join(args.output_dir, "best_pytorch_model.bin")
+        output_model_file = os.path.join(args.output_dir, "best_RCM_model.bin")
         model_state_dict = torch.load(output_model_file)
         model = RCMBert.from_pretrained(args.bert_model,
                                         state_dict=model_state_dict,

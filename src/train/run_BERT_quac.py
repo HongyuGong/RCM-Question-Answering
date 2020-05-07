@@ -347,8 +347,8 @@ def main():
     # QuAC Example and ChunkFeature
     train_examples = None
     num_train_steps = None
-    num_train_steps = None
     if args.do_train:
+        # Load examples
         cached_train_examples_file = args.train_file+'_train_examples'
         cached_dev_examples_file = args.train_file+'_dev_examples'
         try:
@@ -371,35 +371,8 @@ def main():
             logger.info("Creating train and dev examples...")
         logger.info("# of train examples: {}, # of dev examples: {}".format(
             len(train_examples), len(dev_examples)))
-        num_train_steps = int(
-            len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
-    t_total = num_train_steps
-    if args.local_rank != -1:
-        t_total = t_total // torch.distributed.get_world_size()
-    if args.fp16:
-        try:
-            from apex.optimizers import FP16_Optimizer
-            from apex.optimizers import FusedAdam
-        except ImportError:
-            raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
-
-        optimizer = FusedAdam(optimizer_grouped_parameters,
-                              lr=args.learning_rate,
-                              bias_correction=False,
-                              max_grad_norm=1.0)
-        if args.loss_scale == 0:
-            optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True)
-        else:
-            optimizer = FP16_Optimizer(optimizer, static_loss_scale=args.loss_scale)
-    else:
-        optimizer = BertAdam(optimizer_grouped_parameters,
-                             lr=args.learning_rate,
-                             warmup=args.warmup_proportion,
-                             t_total=t_total)
-
-    global_step = 0
-    if args.do_train:
+        # Load features
         cached_train_features_file = args.train_file+'_{0}_{1}_{2}_BERT_train'.format(
             list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_seq_length), \
             str(args.max_query_length))
@@ -440,7 +413,34 @@ def main():
                     pickle.dump(train_features, writer)
                 with open(cached_dev_features_file, "wb") as writer:
                     pickle.dump(dev_features, writer)
-        
+        num_train_steps = int(
+            len(train_features) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
+
+    t_total = num_train_steps
+    if args.local_rank != -1:
+        t_total = t_total // torch.distributed.get_world_size()
+    if args.fp16:
+        try:
+            from apex.optimizers import FP16_Optimizer
+            from apex.optimizers import FusedAdam
+        except ImportError:
+            raise ImportError("Please install apex from https://www.github.com/nvidia/apex to use distributed and fp16 training.")
+
+        optimizer = FusedAdam(optimizer_grouped_parameters,
+                              lr=args.learning_rate,
+                              bias_correction=False,
+                              max_grad_norm=1.0)
+        if args.loss_scale == 0:
+            optimizer = FP16_Optimizer(optimizer, dynamic_loss_scale=True)
+        else:
+            optimizer = FP16_Optimizer(optimizer, static_loss_scale=args.loss_scale)
+    else:
+        optimizer = BertAdam(optimizer_grouped_parameters,
+                             lr=args.learning_rate,
+                             warmup=args.warmup_proportion,
+                             t_total=t_total)
+
+    if args.do_train:        
         logger.info("***** Running training *****")
         logger.info("  Num train orig examples = %d", len(train_examples))
         logger.info("  Num train split examples = %d", len(train_features))

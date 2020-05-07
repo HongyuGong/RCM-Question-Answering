@@ -364,7 +364,7 @@ def make_predictions(all_examples, all_features, all_results, n_best_size,
 
 def format_predictions(all_predictions, output_prediction_file):
     # format prediction outputs: https://s3.amazonaws.com/my89public/quac/example.json
-    prediction_dict = defaultdict(list) # paragraph_id: (turn_id, example_id, yesno, answer, followup)
+    prediction_dict = collections.defaultdict(list) # paragraph_id: (turn_id, example_id, yesno, answer, followup)
     for prediction in all_predictions:
         example_id = prediction['example_id']
         #yesno = prediction['yesno']
@@ -377,10 +377,10 @@ def format_predictions(all_predictions, output_prediction_file):
 
     with open(output_prediction_file, "w") as writer:
         for paragraph_id in prediction_dict:
-            predictions = prediction_dict[pragraph_id]
+            predictions = prediction_dict[paragraph_id]
             sorted_predictions = sorted(predictions, key=lambda item:item[0], reverse=True)
-            output_dict = OrderedDict()
-            output_dict["best_span_str"] = [item[3] for item in sorted_predictions]
+            output_dict = collections.OrderedDict()
+            output_dict["best_span_str"] = [item[2] for item in sorted_predictions]
             output_dict["qid"] = [item[1] for item in sorted_predictions]
             #output_dict["yesno"] = [yesno_vocab[item[2]] for item in sorted_predictions]
             #output_dict["followup"] = [followup_vocab[item[4]] for item in sorted_predictions]

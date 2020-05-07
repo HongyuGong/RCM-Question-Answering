@@ -31,7 +31,7 @@ logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(messa
                     level = logging.INFO)
 logger = logging.getLogger(__name__)
 
-#UNK = "CANNOTANSWER"
+UNK = "CANNOTANSWER"
 followup_vocab = ['y', 'n', 'm']
 #yesno_vocab = ['y', 'n', 'x']
 
@@ -132,6 +132,7 @@ def read_quac_examples(input_file, is_training=True, use_history=False, n_histor
             start_position = None
             end_position = None
             yes_no_flag = None
+            yes_no_ans = None
             followup = None
             orig_answer_text = None
             if is_training:
@@ -263,7 +264,7 @@ def make_predictions(all_examples, all_features, all_results, n_best_size, \
         "PrelimPrediction",
         ["result_index", "start_index", "end_index", "text", "logit"])
 
-    validate_predictions = defaultdict(dict)
+    validate_predictions = collections.defaultdict(dict)
     all_predictions = []
     all_nbest_json = []
     for (example_index, feature) in enumerate(all_features):
@@ -401,7 +402,7 @@ def make_predictions(all_examples, all_features, all_results, n_best_size, \
 
 def format_predictions(all_predictions, output_prediction_file):
     # format prediction outputs: https://s3.amazonaws.com/my89public/quac/example.json
-    prediction_dict = defaultdict(list) # paragraph_id: (turn_id, example_id, yesno, answer, followup)
+    prediction_dict = collections.defaultdict(list) # paragraph_id: (turn_id, example_id, yesno, answer, followup)
     for prediction in all_predictions:
         example_id = prediction['example_id']
         #yesno = prediction['yesno']
@@ -414,10 +415,10 @@ def format_predictions(all_predictions, output_prediction_file):
 
     with open(output_prediction_file, "w") as writer:
         for paragraph_id in prediction_dict:
-            predictions = prediction_dict[pragraph_id]
+            predictions = prediction_dict[paragraph_id]
             sorted_predictions = sorted(predictions, key=lambda item:item[0], reverse=True)
-            output_dict = OrderedDict()
-            output_dict["best_span_str"] = [item[3] for item in sorted_predictions]
+            output_dict = collections.OrderedDict()
+            output_dict["best_span_str"] = [item[2] for item in sorted_predictions]
             output_dict["qid"] = [item[1] for item in sorted_predictions]
             #output_dict["yesno"] = [yesno_vocab[item[2]] for item in sorted_predictions]
             #output_dict["followup"] = [followup_vocab[item[4]] for item in sorted_predictions]

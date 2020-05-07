@@ -484,7 +484,6 @@ def main():
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
 
     # Prepare model
-    #if args.reload_model_path is not None and os.path.isfile(args.reload_model_path):
     if args.pretrained_model_path is not None and os.path.isfile(args.pretrained_model_path):
         logger.info("Reloading pretrained model from {}".format(args.pretrained_model_path))
         model_state_dict = torch.load(args.pretrained_model_path)
@@ -493,14 +492,6 @@ def main():
                                         action_num=len(stride_action_space),
                                         recur_type=args.recur_type,
                                         allow_yes_no=True)
-    """
-    elif args.pretrained_model_path is not None and os.path.isfile(args.pretrained_model_path):
-        logger.info("Reloading a basic model from  {}".format(args.pretrained_model_path))
-        model = RCMBert.from_pretrained(args.pretrained_model_path,
-                                        action_num=len(stride_action_space),
-                                        recur_type=args.recur_type,
-                                        allow_yes_no=True)
-    """
     else:
         logger.info("Training a new model from scratch")
         model = RCMBert.from_pretrained(args.bert_model,
