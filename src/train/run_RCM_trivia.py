@@ -32,8 +32,8 @@ from data_helper.qa_util import split_train_dev_data, gen_model_features, _impro
      get_final_text, _compute_softmax, _get_best_indexes
 from data_helper.data_helper_trivia import read_trivia_examples, convert_examples_to_features, \
      RawResult, make_predictions, write_predictions
-import data_helper.json_utils
-import data_helper.trivia_dataset_utils
+#import data_helper.json_utils
+#import data_helper.trivia_dataset_utils
 from eval_helper.eval_triviaqa import TriviaEvaluator
 
 
@@ -44,9 +44,7 @@ logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(messa
 logger = logging.getLogger(__name__)
 
 
-stide_action_space = [-32, 64, 128, 256, 512]
-# for sanity check
-#stride_action_space = [128]
+stride_action_space = [-32, 64, 128, 256, 512]
 
 def validate_model(args, model, tokenizer, dev_examples, dev_features,
                    dev_dataloader, dev_evaluator, best_dev_score, device):
@@ -355,13 +353,10 @@ def main():
     parser.add_argument("--pretrained_model_path", default=None, type=str, help="Pretrained basic Bert model")
     parser.add_argument("--output_dir", default=None, type=str, required=True,
                         help="The output directory where the model checkpoints and predictions will be written.")
-
     ## Other parameters
     parser.add_argument("--train_file", default=None, type=str, help="triviaqa train file")
     parser.add_argument("--predict_file", default=None, type=str,
                         help="triviaqa dev or test file in SQuAD format")
-    parser.add_argument("--predict_data_file", default=None, type=str,
-                        help="triviaqa dev or test file in Triviaqa format")
     # history queries parameters
     parser.add_argument("--max_seq_length", default=512, type=int,
                         help="The maximum total input sequence length after WordPiece tokenization. Sequences "

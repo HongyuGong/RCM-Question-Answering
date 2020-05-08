@@ -21,7 +21,7 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 from transformers.tokenization_bert import whitespace_tokenize, BasicTokenizer, BertTokenizer
-from qa_util import _improve_answer_span, _get_best_indexes, get_final_text
+from data_helper.qa_util import _improve_answer_span, _get_best_indexes, get_final_text
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -91,7 +91,7 @@ def read_trivia_examples(input_file, is_training=True):
                 char_to_word_offset.append(len(doc_tokens) - 1)
 
             for qa in paragraph["qas"]:
-                qas_id = qa["id"]
+                qas_id = qa["qid"]
                 question_text = qa["question"]
                 start_position = None
                 end_position = None
@@ -144,12 +144,14 @@ def convert_examples_to_features(examples, tokenizer, max_query_length, is_train
 
         # mapping between orig and tok
         tok_to_orig_index = []
+        tok_to_orig_map = {}
         orig_to_tok_index = []
         all_doc_tokens = []
         for (i, token) in enumerate(example.doc_tokens):
             orig_to_tok_index.append(len(all_doc_tokens))
             sub_tokens = tokenizer.tokenize(token)
             for sub_token in sub_tokens:
+                tok_to_orig_map[len(all_doc_tokens)] = i
                 tok_to_orig_index.append(i)
                 all_doc_tokens.append(sub_token)
 
@@ -165,6 +167,17 @@ def convert_examples_to_features(examples, tokenizer, max_query_length, is_train
                 all_doc_tokens, tok_start_position, tok_end_position, tokenizer,
                 example.orig_answer_text)
 
+        if example_index >= 16 and example_index < 20:
+            logger.info("*** Example ***")
+            logger.info("example_index: %s" % (example_index))
+            logger.info("tokens: %s" % " ".join(all_doc_tokens))
+            if is_training:
+                answer_text = " ".join(all_doc_tokens[tok_start_position:(tok_end_position + 1)])
+                logger.info("start_position: %d" % (tok_start_position))
+                logger.info("end_position: %d" % (tok_end_position))
+                logger.info("orig answer: %s" %(example.orig_answer_text))
+                logger.info("answer: %s" % (answer_text))
+                    
         features.append(
             ExampleFeature(
                 example_index=example_index,

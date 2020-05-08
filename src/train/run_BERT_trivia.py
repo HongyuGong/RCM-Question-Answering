@@ -30,8 +30,8 @@ from data_helper.qa_util import split_train_dev_data
 from data_helper.data_helper_trivia import read_trivia_examples
 from data_helper.chunk_helper_trivia import convert_examples_to_features, RawResult, \
      make_predictions, write_predictions
-import data_helper.json_utils
-import data_helper.trivia_dataset_utils
+#import data_helper.json_utils
+#import data_helper.trivia_dataset_utils
 from eval_helper.eval_triviaqa import TriviaEvaluator
 
 
@@ -208,9 +208,6 @@ def main():
     parser.add_argument("--train_file", default=None, type=str, help="triviaqa train file")
     parser.add_argument("--predict_file", default=None, type=str,
                         help="triviaqa dev or test file in SQuAD format")
-    #parser.add_argument("--use_history", default=False, action="store_true")
-    #parser.add_argument("--append_history", default=False, action="store_true", help="Whether to append the previous queries to the current one.")
-    #parser.add_argument("--n_history", default=-1, type=int, help="The number of previous queries used in current query.")
     parser.add_argument("--max_seq_length", default=512, type=int,
                         help="The maximum total input sequence length after WordPiece tokenization. Sequences "
                              "longer than this will be truncated, and sequences shorter than this will be padded.")
@@ -346,7 +343,7 @@ def main():
         {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay': 0.0}
         ]
 
-    # QuAC Example and ChunkFeature
+    # Trivia Example and ChunkFeature
     train_examples = None
     num_train_steps = None
     if args.do_train:
@@ -468,11 +465,9 @@ def main():
         model.to(device)
 
         # load data
-        test_examples = read_quac_examples(
+        test_examples = read_trivia_examples(
             input_file=args.predict_file,
-            is_training=False,
-            use_history=args.use_history,
-            n_history=args.n_history)
+            is_training=False)
         cached_test_features_file = args.predict_file+'_{0}_{1}_{2}_BERT_test'.format(
             list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_seq_length), \
             str(args.max_query_length))
@@ -487,8 +482,7 @@ def main():
                 max_seq_length=args.max_seq_length,
                 doc_stride=args.doc_stride,
                 max_query_length=args.max_query_length,
-                is_training=False,
-                append_history=args.append_history)
+                is_training=False)
             with open(cached_test_features_file, "wb") as writer:
                 pickle.dump(test_features, writer)
                 

@@ -213,7 +213,7 @@ def make_predictions(all_examples, all_features, all_results, n_best_size,
         ["feature_index", "start_index", "end_index", "text", "logit"])
 
     validate_predictions = dict()
-    all_predictions = []
+    all_predictions = collections.OrderedDict()
     all_nbest_json = []
     for (example_index, example) in enumerate(all_examples):
         features = example_index_to_features[example_index]
@@ -306,7 +306,7 @@ def make_predictions(all_examples, all_features, all_results, n_best_size,
         assert len(nbest) >= 1
 
         if validate_flag:
-            validate_predictions[(example.paragraph_id, example.turn_id)] = nbest[0].text
+            validate_predictions[example.qas_id] = nbest[0].text
         else:
             total_scores = []
             for entry in nbest:

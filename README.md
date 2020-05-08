@@ -46,9 +46,19 @@ Download data from [QuAC websiet](https://quac.ai)
 
 3. TriviaQA
 
-Download data from [TriviaQA websiet](https://nlp.cs.washington.edu/triviaqa/). Two folders qa/ and evidence/ can be found in triviaqa/.
+Download data from [TriviaQA websiet](https://nlp.cs.washington.edu/triviaqa/) and save in DATA_DIR/. Two folders qa/ and evidence/ can be found in DATA_DIR/. TriviaQA dataset contains data from two domains: web and wikipedia, and we use its wikipedia portion in our experiments.
 
-Follow instructions [here](https://github.com/mandarjoshi90/triviaqa) to adapt TriviaQA to SQuAD format. Create a subfolder under squad-qa/ under the folder triviaqa/.
+Follow instructions [here](https://github.com/mandarjoshi90/triviaqa), refer to their script utils.convert_to_squad_format.py to adapt TriviaQA to SQuAD format. Create a subfolder under squad-qa/ under the data folder DATA_DIR.
+
+Clone the Github repo triviaqa, and convert data to squad format in squad-qa/
+
+```bash
+python3 -m utils.convert_to_squad_format --triviaqa_file DATA_DIR/qa/wikipedia-train.json --squad_file DATA_DIR/squad-qa/wikipedia-train.json --wikipedia_dir DATA_DIR/evidence/wikipedia/ --web_dir DATA_DIR/evidence/web/ --tokenizer NLTK_TOKENIZER_PATH [~/nltk_data/tokenizers/punkt/english.pickle]
+
+python3 utils.convert_to_squad_format --triviaqa_file DATA_DIR/qa/wikipedia-dev.json --squad_file DATA_DIR/squad-qa/wikipedia-dev.json --wikipedia_dir DATA_DIR/evidence/wikipedia/ --web_dir DATA_DIR/evidence/web/ --tokenizer NLTK_TOKENIZER_PATH
+```
+ 
+* NLTK_TOKENIZER_PATH: path to nltk English tokenizer (tokenizers/punkt/english.pickle)
 
 
 ## Training
@@ -75,7 +85,7 @@ python3 train/run_BERT_coqa.py
 --predict_batch_size 18
 --learning_rate 3e-5
 --num_train_epochs 2.5
---max_answer_length 40
+--max_answer_length 30
 --do_lower_case
 ```
 
@@ -98,9 +108,9 @@ python3 train/run_RCM_coqa.py
 --recur_type RECUR_TYPE
 --train_batch_size 8
 --learning_rate 1e-5
---num_train_epochs 2.0
+--num_train_epochs 2
 --max_read_times 3
---max_answer_length 40
+--max_answer_length 30
 ```
 
 * MAX_SEQ_LENGTH can be integers no larger than 512
@@ -127,10 +137,17 @@ python3 train/run_RCM_coqa.py
 --recur_type RECUR_TYPE
 --predict_batch_size 12
 --max_read_times 3
---max_answer_length 40
+--max_answer_length 30
 ```
 
-* Predictions will be saved in OUTPUT_DIR/rl/
+* Predictions will be saved in OUTPUT_DIR/rl/predictions.json
+
+#### Evaluation
+Download [official evaluation script](https://nlp.stanford.edu/data/coqa/evaluate-v1.0.py) and save it in the folder evaluation/
+
+```bash
+python -m evaluation.evaluate-v1.0 --data-file DATA_DIR/coqa-dev-v1.0.json --pred-file OUTPUT_DIR/rl/predictions.json
+```
 
 
 ### 2. Question Answering in Context (QuAC)
@@ -208,7 +225,14 @@ python3 train/run_RCM_quac.py
 --max_answer_length 40
 ```
 
-* Predictions will be saved in OUTPUT_DIR/rl/
+* Predictions will be saved in OUTPUT_DIR/rl/predictions.json
+
+#### Evaluation
+The official evaluation script can be downloaded [here](https://s3.amazonaws.com/my89public/quac/scorer.py). Since the script not only evaluates answer span predictions but also yes-no and followup predictions, we modify the evaluation script by only keeping its evaluation of predicted answer spans. The modified scripts can be found in evaluation/quac_evaluation
+
+```bash
+python -m evaluation.quac_evaluation --val_file DATA_DIR/val_v0.2.json --model_output OUTPUT_DIR/rl/predictions.json
+```
 
 
 ### 3. TriviaQA
@@ -219,9 +243,7 @@ python3 train/run_RCM_quac.py
 python3 train/run_BERT_trivia.py
 --bert_model bert-large-uncased
 --output_dir OUTPUT_DIR/pretrained/
---train_file DATA_DIR/trivia.train.josn
---use_history
---n_history -1
+--train_file DATA_DIR/squad-qa/wikipedia-train.josn
 --max_seq_length MAX_SEQ_LENGTH[256]
 --doc_stride 64
 --max_query_length 64
@@ -241,16 +263,14 @@ python3 train/run_BERT_trivia.py
 python3 train/run_RCM_trivia.py 
 --bert_model bert-large-uncased 
 --output_dir OUTPUT_DIR/rl/
---train_file DATA_DIR/trivia.train.json
---use_history
---n_history -1
+--train_file DATA_DIR/squad-qa/wikipedia-train.json
 --max_seq_length MAX_SEQ_LENGTH
 --max_query_length 64
 --doc_stride 64
 --do_train
 --do_validate
 --do_lower_case
---pretrained_model_path OUTPUT_DIR/pretrained/best_RCM_model.bin
+--pretrained_model_path OUTPUT_DIR/pretrained/best_BERT_model.bin
 --recur_type RECUR_TYPE
 --train_batch_size 8
 --learning_rate 1e-5
@@ -272,7 +292,7 @@ python3 train/run_RCM_trivia.py
 python3 train/run_RCM_trivia.py 
 --bert_model bert-large-uncased 
 --output_dir OUTPUT_DIR/rl/
---predict_file DATA_DIR/trivia.dev.json
+--predict_file DATA_DIR/squad-qa/wikipedia-dev.json
 --use_history
 --n_history -1
 --max_seq_length MAX_SEQ_LENGTH
@@ -286,7 +306,7 @@ python3 train/run_RCM_trivia.py
 --max_answer_length 40
 ```
 
-* Predictions will be saved in OUTPUT_DIR/rl/
+* Predictions will be saved in OUTPUT_DIR/rl/predictions.json
 
 
 ## Ablation Study
@@ -315,7 +335,14 @@ python3 train/run_RCM_coqa.py
 --max_answer_length 40
 ```
 
-If you have any questions, please contact Hongyu Gong (hgong6@illinois.edu).
+#### Evaluation
+Download [official trivia repo](https://github.com/mandarjoshi90/triviaqa), and go to the repo folder triviqa/. Follow the instruction to evaluate predictions.
+
+```bash
+python3 -m evaluation.triviaqa_evaluation --dataset_file DATA_DIR/qa/wikipedia-dev.json --prediction_file OUTPUT_DIR/rl/predictions.json
+```
+
+If you have any questions, please contact Hongyu Gong (hongyugong6@gmail.com).
 
 If you use our code, please cite our work:
 Hongyu Gong, Yelong Shen, Dian Yu, Jianshu Chen and Dong Yu, "Recurrent Chunking Mechanisms for Long-Text Machine Reading Comprehension", accepted by Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics (ACL 2020).

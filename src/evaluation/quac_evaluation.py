@@ -1,3 +1,10 @@
+"""
+Modified version of official QuAC evaluation (https://s3.amazonaws.com/my89public/quac/scorer.py)
+ - only evaluate predicted answer span
+ - comment out evaluation of yes-no and followup
+"""
+
+
 import json, string, re
 from collections import Counter, defaultdict
 from argparse import ArgumentParser
@@ -164,7 +171,8 @@ def eval_fn(val_results, model_results, verbose):
             human_f1.append(hf1)
           continue
 
-        pred_span, pred_yesno, pred_followup = model_results[did][q_idx]
+        #pred_span, pred_yesno, pred_followup = model_results[did][q_idx]
+        pred_span = model_results[did][q_idx]
 
         max_overlap, _ = metric_max_over_ground_truths( \
           pred_span, val_spans, par['context'])
@@ -177,8 +185,8 @@ def eval_fn(val_results, model_results, verbose):
           continue
 
         human_f1.append(hf1)
-        yes_nos.append(pred_yesno == qa['yesno'])
-        followups.append(pred_followup == qa['followup'])
+        #yes_nos.append(pred_yesno == qa['yesno'])
+        #followups.append(pred_followup == qa['followup'])
         if val_spans == ['CANNOTANSWER']:
           unanswerables.append(max_f1)
         if verbose:
@@ -201,17 +209,18 @@ def eval_fn(val_results, model_results, verbose):
   all_f1s = sum(f1_stats.values(), [])
   overall_f1 = 100.0 * sum(all_f1s) / len(all_f1s)
   unfiltered_f1 = 100.0 * sum(unfiltered_f1s) / len(unfiltered_f1s)
-  yesno_score = (100.0 * sum(yes_nos) / len(yes_nos))
-  followup_score = (100.0 * sum(followups) / len(followups))
+  #yesno_score = (100.0 * sum(yes_nos) / len(yes_nos))
+  #followup_score = (100.0 * sum(followups) / len(followups))
   unanswerable_score = (100.0 * sum(unanswerables) / len(unanswerables))
-  metric_json = {"unfiltered_f1": unfiltered_f1, "f1": overall_f1, "HEQ": HEQ_score, "DHEQ": DHEQ_score, "yes/no": yesno_score, "followup": followup_score, "unanswerable_acc": unanswerable_score}
+  #metric_json = {"unfiltered_f1": unfiltered_f1, "f1": overall_f1, "HEQ": HEQ_score, "DHEQ": DHEQ_score, "yes/no": yesno_score, "followup": followup_score, "unanswerable_acc": unanswerable_score}
+  metric_json = {"unfiltered_f1": unfiltered_f1, "f1": overall_f1, "HEQ": HEQ_score, "DHEQ": DHEQ_score, "yes/no": None, "followup": None, "unanswerable_acc": unanswerable_score}
   if verbose:
     print("=======================")
     display_counter('Overlap Stats', span_overlap_stats, f1_stats)
   print("=======================")
   print('Overall F1: %.1f' % overall_f1)
-  print('Yes/No Accuracy : %.1f' % yesno_score)
-  print('Followup Accuracy : %.1f' % followup_score)
+  #print('Yes/No Accuracy : %.1f' % yesno_score)
+  #print('Followup Accuracy : %.1f' % followup_score)
   print('Unfiltered F1 ({0:d} questions): {1:.1f}'.format(len(unfiltered_f1s), unfiltered_f1))
   print('Accuracy On Unanswerable Questions: {0:.1f} %% ({1:d} questions)'.format(unanswerable_score, len(unanswerables)))
   print('Human F1: %.1f' % (100.0 * sum(human_f1) / len(human_f1)))
@@ -236,9 +245,12 @@ if __name__ == "__main__":
     if line.strip():
       pred_idx = json.loads(line.strip())
       dia_id = pred_idx['qid'][0].split("_q#")[0]
-      for qid, qspan, qyesno, qfollowup in zip(pred_idx['qid'], pred_idx['best_span_str'], pred_idx['yesno'], pred_idx['followup']):
-        preds[dia_id][qid] = qspan, qyesno, qfollowup
+      for qid, qspan in zip(pred_idx['qid'], pred_idx['best_span_str']):
+        preds[dia_id][qid] = qspan
         total += 1
+      #for qid, qspan, qyesno, qfollowup in zip(pred_idx['qid'], pred_idx['best_span_str'], pred_idx['yesno'], pred_idx['followup']):
+      #  preds[dia_id][qid] = qspan, qyesno, qfollowup
+      #  total += 1
   for p in val:
     for par in p['paragraphs']:
       did = par['id']

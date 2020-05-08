@@ -6,7 +6,7 @@ ref: https://github.com/mandarjoshi90/triviaqa/blob/master/evaluation/triviaqa_e
 """
 
 from __future__ import print_function
-from collections import Counter
+from collections import Counter, defaultdict
 import string
 import re
 import sys
@@ -17,13 +17,13 @@ import argparse
 
 class TriviaEvaluator():
     def __init__(self, examples):
-        self.ground_truth = TriviaEvaluator.gold_answers_to_dict()
+        self.ground_truth = TriviaEvaluator.gold_answers_to_dict(examples)
 
     @staticmethod
     def gold_answers_to_dict(examples):
         ground_truth = defaultdict()
         for example in examples:
-            qid = example.example_id
+            qid = example.qas_id
             ground_truth[qid] = [example.orig_answer_text]
             #dia_id = qid.split("_q#")[0]
             #gold_data[dia_id][qid] = example
@@ -133,7 +133,7 @@ class TriviaEvaluator():
             common += 1
             prediction = predicted_answers[qid]
             #ground_truths = get_ground_truths(ground_truth[qid])
-            ground_truths = [TriviaEvaluator.normalize_answer(ans) for ans in ground_truth[qid]]
+            ground_truths = [TriviaEvaluator.normalize_answer(ans) for ans in self.ground_truth[qid]]
             em_for_this_question = TriviaEvaluator.metric_max_over_ground_truths(
                 TriviaEvaluator.exact_match_score, prediction, ground_truths)
             if em_for_this_question == 0 and not mute:
@@ -147,5 +147,5 @@ class TriviaEvaluator():
         f1 = 100.0 * f1 / len(qid_list)
 
         return {'exact_match': exact_match, 'f1': f1, 'common': common, 'denominator': len(qid_list),
-                'pred_len': len(predicted_answers), 'gold_len': len(ground_truth)}
+                'pred_len': len(predicted_answers), 'gold_len': len(self.ground_truth)}
 
