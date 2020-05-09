@@ -1,8 +1,6 @@
 # RCM-Question-Answering
 
-# This repository is being constructed and tested. Training and testing instructions will be released after testing.
-
-This is the re-implementation of RCM-BERT model for question answering in the paper "Recurrent Chunking Mechanisms for Long-Text Machine Reading Comprehension".
+This is a re-implementation of RCM-BERT question answering model by the ACL 2020 paper "Recurrent Chunking Mechanisms for Long-Text Machine Reading Comprehension".
 
 Required package:
 
@@ -308,10 +306,16 @@ python3 train/run_RCM_trivia.py
 
 * Predictions will be saved in OUTPUT_DIR/rl/predictions.json
 
+#### Evaluation
+Download [official trivia repo](https://github.com/mandarjoshi90/triviaqa), and go to the repo folder triviqa/. Follow the instruction to evaluate predictions.
+
+```bash
+python3 -m evaluation.triviaqa_evaluation --dataset_file DATA_DIR/qa/wikipedia-dev.json --prediction_file OUTPUT_DIR/rl/predictions.json
+```
 
 ## Ablation Study
 
-Train CoQA model with recurrence but without flexible strides
+To evaluate the gain of chunking mechanism, train a model with recurrence but without flexible strides on CoQA dataset:
 
 ```bash
 python3 train/run_RCM_coqa.py 
@@ -332,15 +336,9 @@ python3 train/run_RCM_coqa.py
 --learning_rate 3e-5
 --num_train_epochs 2.0
 --max_read_times 3
---max_answer_length 40
+--max_answer_length 30
 ```
 
-#### Evaluation
-Download [official trivia repo](https://github.com/mandarjoshi90/triviaqa), and go to the repo folder triviqa/. Follow the instruction to evaluate predictions.
-
-```bash
-python3 -m evaluation.triviaqa_evaluation --dataset_file DATA_DIR/qa/wikipedia-dev.json --prediction_file OUTPUT_DIR/rl/predictions.json
-```
 
 If you have any questions, please contact Hongyu Gong (hongyugong6@gmail.com).
 
