@@ -38,7 +38,7 @@ python3 data_helper/preprocess_coqa.py --data_file DATA_DIR/coqa-dev-v1.0.json -
 
 2. QuAC
 
-Download data from [QuAC websiet](https://quac.ai)
+Download data from [QuAC websiet](https://quac.ai).
 
 3. TriviaQA
 
