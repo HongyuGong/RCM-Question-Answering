@@ -167,8 +167,6 @@ def main():
 
     ## Other parameters
     parser.add_argument("--train_file", default=None, type=str, help="triviaqa train file")
-    parser.add_argument("--predict_file", default=None, type=str,
-                        help="triviaqa dev or test file in SQuAD format")
     parser.add_argument("--use_history", default=False, action="store_true")
     parser.add_argument("--append_history", default=False, action="store_true", help="Whether to append the previous queries to the current one.")
     parser.add_argument("--n_history", default=-1, type=int, help="The number of previous queries used in current query.")

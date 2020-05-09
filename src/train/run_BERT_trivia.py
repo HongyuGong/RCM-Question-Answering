@@ -169,8 +169,6 @@ def main():
 
     ## Other parameters
     parser.add_argument("--train_file", default=None, type=str, help="triviaqa train file")
-    parser.add_argument("--predict_file", default=None, type=str,
-                        help="triviaqa dev or test file in SQuAD format")
     parser.add_argument("--max_seq_length", default=512, type=int,
                         help="The maximum total input sequence length after WordPiece tokenization. Sequences "
                              "longer than this will be truncated, and sequences shorter than this will be padded.")
@@ -253,7 +251,7 @@ def main():
     if n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
 
-    if not args.do_train
+    if not args.do_train:
         raise ValueError("`do_train` must be True.")
 
     if args.do_train:
