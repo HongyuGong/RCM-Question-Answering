@@ -21,8 +21,6 @@ Enter the directory RCM-Question-Answering/src/.
 
 (2) Preprocess CoQA data
 
-ref: https://github.com/stanfordnlp/coqa-baselines/blob/master/README.md
-
 Start a CoreNLP server
 
 ```bash
