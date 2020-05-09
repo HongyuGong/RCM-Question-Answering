@@ -385,22 +385,3 @@ def make_predictions(all_examples, all_features, all_results, n_best_size,
         return validate_predictions
     else:
         return all_predictions, all_nbest_json
-
-
-def write_predictions(all_examples, all_features, all_results, n_best_size,
-                      max_answer_length, do_lower_case, output_prediction_file,
-                      output_nbest_file, verbose_logging):
-    """Write final predictions to the json file."""
-    logger.info("Writing predictions to: %s" % (output_prediction_file))
-    logger.info("Writing nbest to: %s" % (output_nbest_file))
-
-    all_predictions, all_nbest_json = make_predictions(all_examples, all_features, all_results, \
-                                                       n_best_size, max_answer_length, do_lower_case, \
-                                                       verbose_logging, validate_flag=False)
-    
-    with open(output_prediction_file, "w") as writer:
-        writer.write(json.dumps(all_predictions, indent=4) + "\n")
-
-    with open(output_nbest_file, "w") as writer:
-        writer.write(json.dumps(all_nbest_json, indent=4) + "\n")
-

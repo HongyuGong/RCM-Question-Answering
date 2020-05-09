@@ -29,7 +29,7 @@ from model.modeling_BERT import BertQA
 from data_helper.qa_util import split_train_dev_data
 from data_helper.data_helper_coqa import read_coqa_examples
 from data_helper.chunk_helper_coqa import convert_examples_to_features, RawResult, \
-     make_predictions, write_predictions
+     make_predictions
 from eval_helper.eval_coqa import CoQAEvaluator
 
 
@@ -157,47 +157,7 @@ def train_model(args, model, tokenizer, optimizer, train_examples, train_feature
     output_model_file = os.path.join(args.output_dir, "BERT_model.bin")
     if args.do_train:
         torch.save(model_to_save.state_dict(), output_model_file)
-
-
-def test_model(args, model, tokenizer, test_examples, test_features, device):
-    all_test_input_ids = torch.tensor([f.input_ids for f in test_features], dtype=torch.long)
-    all_test_input_mask = torch.tensor([f.input_mask for f in test_features], dtype=torch.long)
-    all_test_segment_ids = torch.tensor([f.segment_ids for f in test_features], dtype=torch.long)
-    all_test_example_index = torch.arange(all_test_input_ids.size(0), dtype=torch.long)
-    test_data = TensorDataset(all_test_input_ids, all_test_input_mask,
-                              all_test_segment_ids, all_test_example_index)
-    test_sampler = SequentialSampler(test_data)
-    test_dataloader = DataLoader(test_data, sampler=test_sampler,
-                                 batch_size=args.predict_batch_size)
-    
-    model.eval()
-    all_results = []
-    for input_ids, input_mask, segment_ids, example_indices in tqdm(test_dataloader, desc="Evaluating"):
-        input_ids = input_ids.to(device)
-        input_mask = input_mask.to(device)
-        segment_ids = segment_ids.to(device)
-        with torch.no_grad():
-            batch_start_logits, batch_end_logits, batch_yes_no_flag_logits, batch_yes_no_ans_logits \
-                                = model(input_ids, segment_ids, input_mask)
-        for i, example_index in enumerate(example_indices):
-            start_logits = batch_start_logits[i].detach().cpu().tolist()
-            end_logits = batch_end_logits[i].detach().cpu().tolist()
-            yes_no_flag_logits = batch_yes_no_flag_logits[i].detach().cpu().tolist()
-            yes_no_ans_logits = batch_yes_no_ans_logits[i].detach().cpu().tolist()
-            test_feature = test_features[example_index.item()]
-            unique_id = int(test_feature.unique_id)
-            all_results.append(RawResult(unique_id=unique_id,
-                                         start_logits=start_logits,
-                                         end_logits=end_logits,
-                                         yes_no_flag_logits=yes_no_flag_logits,
-                                         yes_no_ans_logits=yes_no_ans_logits))
-    # write predictions
-    output_prediction_file = os.path.join(args.output_dir, "predictions.json")
-    output_nbest_file = os.path.join(args.output_dir, "nbest_predictions.json")
-    write_predictions(test_examples, test_features, all_results, args.n_best_size, \
-                      args.max_answer_length, args.do_lower_case, \
-                      output_prediction_file, output_nbest_file, args.verbose_logging)
-
+        
 
 def main():
     parser = argparse.ArgumentParser()
@@ -227,7 +187,6 @@ def main():
                              "be truncated to this length.")
     parser.add_argument("--do_train", action='store_true', help="Whether to run training.")
     parser.add_argument("--do_validate", action='store_true', help="Whether to run validation when training")
-    parser.add_argument("--do_predict", action='store_true', help="Whether to run eval on the dev set.")
     # model parameters
     parser.add_argument("--train_batch_size", default=32, type=int, help="Total batch size for training.")
     parser.add_argument("--predict_batch_size", default=8, type=int, help="Total batch size for predictions.")
@@ -300,17 +259,13 @@ def main():
     if n_gpu > 0:
         torch.cuda.manual_seed_all(args.seed)
 
-    if not args.do_train and not args.do_predict:
-        raise ValueError("At least one of `do_train` or `do_predict` must be True.")
+    if not args.do_train:
+        raise ValueError("`do_train` must be True.")
 
     if args.do_train:
         if not args.train_file:
             raise ValueError(
                 "If `do_train` is True, then `train_file` must be specified.")
-    if args.do_predict:
-        if not args.predict_file:
-            raise ValueError(
-                "If `do_predict` is True, then `predict_file` must be specified.")
 
     if os.path.exists(args.output_dir) and os.listdir(args.output_dir) and args.do_train:
         raise ValueError("Output directory () already exists and is not empty.")
@@ -465,48 +420,6 @@ def main():
 
         train_model(args, model, tokenizer, optimizer, train_examples, train_features,
                     dev_examples, dev_features, dev_evaluator, device, n_gpu, t_total)
-
-
-    # Evaluate trained model
-    if args.do_predict and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
-        output_model_file = os.path.join(args.output_dir, "best_BERT_model.bin")
-        model_state_dict = torch.load(output_model_file)
-        model = BertQA.from_pretrained(args.bert_model,
-                                       state_dict=model_state_dict,
-                                       allow_yes_no=True)
-        model.to(device)
-
-        # load data
-        test_examples = read_coqa_examples(
-            input_file=args.predict_file,
-            is_training=False,
-            use_history=args.use_history,
-            n_history=args.n_history)
-        cached_test_features_file = args.predict_file+'_{0}_{1}_{2}_BERT_test'.format(
-            list(filter(None, args.bert_model.split('/'))).pop(), str(args.max_seq_length), \
-            str(args.max_query_length))
-        test_features = None
-        try:
-            with open(cached_test_features_file, "rb") as reader:
-                test_features = pickle.load(reader)
-        except:
-            test_features = convert_examples_to_features(
-                examples=test_examples,
-                tokenizer=tokenizer,
-                max_seq_length=args.max_seq_length,
-                doc_stride=args.doc_stride,
-                max_query_length=args.max_query_length,
-                is_training=False,
-                append_history=args.append_history)
-            with open(cached_test_features_file, "wb") as writer:
-                pickle.dump(test_features, writer)
-                
-        logger.info("***** Prediction data *****")
-        logger.info("  Num test orig examples = %d", len(test_examples))
-        logger.info("  Num test split examples = %d", len(test_features))
-        logger.info("  Batch size = %d", args.predict_batch_size)
-
-        test_model(args, model, tokenizer, test_examples, test_features, device)
         
 
 if __name__ == "__main__":
