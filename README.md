@@ -46,7 +46,7 @@ Download data from [QuAC websiet](https://quac.ai)
 
 Download data from [TriviaQA websiet](https://nlp.cs.washington.edu/triviaqa/) and save in DATA_DIR/. Two folders qa/ and evidence/ can be found in DATA_DIR/. TriviaQA dataset contains data from two domains: web and wikipedia, and we use its wikipedia portion in our experiments.
 
-Follow instructions [here](https://github.com/mandarjoshi90/triviaqa), refer to their script utils.convert_to_squad_format.py to adapt TriviaQA to SQuAD format. Create a subfolder under squad-qa/ under the data folder DATA_DIR.
+Follow the instructions [here](https://github.com/mandarjoshi90/triviaqa), and refer to its script utils.convert_to_squad_format.py to adapt TriviaQA to SQuAD format. Create a subfolder under squad-qa/ under the data folder DATA_DIR.
 
 Clone the Github repo triviaqa, and convert data to squad format in squad-qa/
 
@@ -74,9 +74,9 @@ python3 train/run_BERT_coqa.py
 --train_file DATA_DIR/coqa.train.josn
 --use_history
 --n_history -1
---max_seq_length MAX_SEQ_LENGTH[256]
---doc_stride 64
---max_query_length 64
+--max_seq_length MAX_SEQ_LENGTH
+--doc_stride DOC_STRIDE
+--max_query_length MAX_QUERY_LENGTH
 --do_train
 --do_validate
 --train_batch_size 12
@@ -86,6 +86,13 @@ python3 train/run_BERT_coqa.py
 --max_answer_length 30
 --do_lower_case
 ```
+
+* MAX_SEQ_LENGTH: the maximum length of input sequence (<= 512).
+
+* DOC_STRIDE: the stride size when reading through a document (set as 64 in the experiments).
+
+* MAX_QUERY_LENGTH: the maximum length of a query in an input sequence (set as 64 in the experiments).
+
 
 #### Recurrent chunking mechamism (RCM) for CoQA.
 
@@ -97,8 +104,7 @@ python3 train/run_RCM_coqa.py
 --use_history
 --n_history -1
 --max_seq_length MAX_SEQ_LENGTH
---max_query_length 64
---doc_stride 64
+--max_query_length MAX_QUERY_LENGTH
 --do_train
 --do_validate
 --do_lower_case
@@ -107,15 +113,22 @@ python3 train/run_RCM_coqa.py
 --train_batch_size 8
 --learning_rate 1e-5
 --num_train_epochs 2
---max_read_times 3
+--max_read_times MAX_READ_TIMES
 --max_answer_length 30
 ```
 
-* MAX_SEQ_LENGTH can be integers no larger than 512
+* OUTPUT_DIR: the directory where the model and predictions are saved.
 
-* RECUR_TYPE can be "gated" or "lstm"
+* DATA_DIR: the directory where the CoQA data is saved.
 
-* OUTPUD_DIR: the path where the trained model will be saved
+* MAX_SEQ_LENGTH: input sequence length and is larger than 512.
+
+* MAX_QUERY_LENGTH: the maximum length of a query in an input sequence (set as 64).
+
+* RECUR_TYPE: can be "gated" or "lstm" corresponding to Gated and LSTM recurrence respectively.
+
+* MAX_READ_TIMES: the maximum number of segments read from a document. It is set as 4, 3, 3, 2 when the MAX_SEQ_LENGTH is set as  192, 256, 384 and 512 respectively.
+
 
 
 #### Prediction
@@ -128,13 +141,13 @@ python3 train/run_RCM_coqa.py
 --use_history
 --n_history -1
 --max_seq_length MAX_SEQ_LENGTH
---max_query_length 64
+--max_query_length MAX_QUERY_LENGTH
 --doc_stride DOC_STRIDE
 --do_predict
 --do_lower_case
 --recur_type RECUR_TYPE
 --predict_batch_size 12
---max_read_times 3
+--max_read_times MAX_READ_TIMES
 --max_answer_length 30
 ```
 
@@ -159,9 +172,9 @@ python3 train/run_BERT_quac.py
 --train_file DATA_DIR/train_v0.2.json
 --use_history
 --n_history -1
---max_seq_length MAX_SEQ_LENGTH[256]
---doc_stride 64
---max_query_length 64
+--max_seq_length MAX_SEQ_LENGTH
+--doc_stride DOC_STRIDE
+--max_query_length MAX_QUERY_LENGTH
 --do_train
 --do_validate
 --train_batch_size 12
@@ -171,6 +184,13 @@ python3 train/run_BERT_quac.py
 --max_answer_length 40
 --do_lower_case
 ```
+
+* MAX_SEQ_LENGTH: the maximum length of input sequence (<= 512).
+
+* DOC_STRIDE: the stride size when reading through a document (set as 64 in the experiments).
+
+* MAX_QUERY_LENGTH: the maximum length of a query in an input sequence (set as 64 in the experiments).
+
 
 #### Recurrent chunking mechamism (RCM) for QuAC
 
@@ -183,7 +203,6 @@ python3 train/run_RCM_quac.py
 --n_history -1
 --max_seq_length MAX_SEQ_LENGTH
 --max_query_length 64
---doc_stride 64
 --do_train
 --do_validate
 --do_lower_case
@@ -192,15 +211,17 @@ python3 train/run_RCM_quac.py
 --train_batch_size 8
 --learning_rate 1e-5
 --num_train_epochs 2.0
---max_read_times 3
+--max_read_times MAX_READ_TIMES
 --max_answer_length 40
 ```
 
-* MAX_SEQ_LENGTH can be integers no larger than 512
+* MAX_SEQ_LENGTH: input sequence length and is larger than 512.
 
-* RECUR_TYPE can be "gated" or "lstm"
+* MAX_QUERY_LENGTH: the maximum length of a query in an input sequence (set as 64).
 
-* OUTPUD_DIR: the path where the trained model will be saved
+* RECUR_TYPE: can be "gated" or "lstm" corresponding to Gated and LSTM recurrence respectively.
+
+* MAX_READ_TIMES: the maximum number of segments read from a document. It is set as 4, 3, 3, 2 when the MAX_SEQ_LENGTH is set as  192, 256, 384 and 512 respectively.
 
 
 #### Prediction
@@ -213,13 +234,13 @@ python3 train/run_RCM_quac.py
 --use_history
 --n_history -1
 --max_seq_length MAX_SEQ_LENGTH
---max_query_length 64
+--max_query_length MAX_QUERY_LENGTH
 --doc_stride DOC_STRIDE
 --do_predict
 --do_lower_case
 --recur_type RECUR_TYPE
 --predict_batch_size 12
---max_read_times 3
+--max_read_times MAX_READ_TIMES
 --max_answer_length 40
 ```
 
@@ -242,18 +263,25 @@ python3 train/run_BERT_trivia.py
 --bert_model bert-large-uncased
 --output_dir OUTPUT_DIR/pretrained/
 --train_file DATA_DIR/squad-qa/wikipedia-train.josn
---max_seq_length MAX_SEQ_LENGTH[256]
---doc_stride 64
---max_query_length 64
+--max_seq_length MAX_SEQ_LENGTH
+--doc_stride DOC_STRIDE
+--max_query_length MAX_QUERY_LENGTH
 --do_train
 --do_validate
 --train_batch_size 12
 --predict_batch_size 18
 --learning_rate 3e-5
 --num_train_epochs 2.5
---max_answer_length 40
+--max_answer_length 60
 --do_lower_case
 ```
+
+* MAX_SEQ_LENGTH: the maximum length of input sequence, set as 512 in the experiment.
+
+* DOC_STRIDE: the stride size when reading through a document.
+
+* MAX_QUERY_LENGTH: the maximum length of a query in an input sequence (set as 64 in the experiments).
+
 
 #### Recurrent chunking mechamism (RCM) for Trivia
 
@@ -263,8 +291,7 @@ python3 train/run_RCM_trivia.py
 --output_dir OUTPUT_DIR/rl/
 --train_file DATA_DIR/squad-qa/wikipedia-train.json
 --max_seq_length MAX_SEQ_LENGTH
---max_query_length 64
---doc_stride 64
+--max_query_length MAX_QUERY_LENGTH
 --do_train
 --do_validate
 --do_lower_case
@@ -273,15 +300,17 @@ python3 train/run_RCM_trivia.py
 --train_batch_size 8
 --learning_rate 1e-5
 --num_train_epochs 2.0
---max_read_times 3
---max_answer_length 40
+--max_read_times MAX_READ_TIMES
+--max_answer_length 60
 ```
 
-* MAX_SEQ_LENGTH can be integers no larger than 512
+* MAX_SEQ_LENGTH: input sequence length, and is set as 512 in the experiment.
 
-* RECUR_TYPE can be "gated" or "lstm"
+* MAX_QUERY_LENGTH: the maximum length of a query in an input sequence (set as 64).
 
-* OUTPUD_DIR: the path where the trained model will be saved
+* RECUR_TYPE: can be "gated" or "lstm" corresponding to Gated and LSTM recurrence respectively.
+
+* MAX_READ_TIMES: the maximum number of segments read from a document. It is set as 3 in the experiment.
 
 
 #### Prediction
@@ -300,8 +329,8 @@ python3 train/run_RCM_trivia.py
 --do_lower_case
 --recur_type RECUR_TYPE
 --predict_batch_size 12
---max_read_times 3
---max_answer_length 40
+--max_read_times MAX_READ_TIMES
+--max_answer_length 60
 ```
 
 * Predictions will be saved in OUTPUT_DIR/rl/predictions.json
@@ -325,8 +354,8 @@ python3 train/run_RCM_coqa.py
 --use_history
 --n_history -1
 --max_seq_length MAX_SEQ_LENGTH
---max_query_length 64
---doc_stride 64
+--max_query_length MAX_QUERY_LENGTH
+--doc_stride DOC_STRIDE
 --do_train
 --do_validate
 --do_lower_case
