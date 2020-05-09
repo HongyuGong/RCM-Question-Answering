@@ -94,7 +94,8 @@ def train_model(args, model, tokenizer, optimizer, train_examples, train_feature
     train_dataloader = DataLoader(train_data, sampler=train_sampler,
                                   batch_size=args.train_batch_size)
   
-    if args.do_validate and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
+    #if args.do_validate and (args.local_rank == -1 or torch.distributed.get_rank() == 0):
+    if args.do_validate:
         all_dev_input_ids = torch.tensor([f.input_ids for f in dev_features], dtype=torch.long)
         all_dev_input_mask = torch.tensor([f.input_mask for f in dev_features], dtype=torch.long)
         all_dev_segment_ids = torch.tensor([f.segment_ids for f in dev_features], dtype=torch.long)
@@ -135,7 +136,7 @@ def train_model(args, model, tokenizer, optimizer, train_examples, train_feature
 
             # validation
             #if (epoch >=1 and step % 500 == 499):
-            if step % 500 == 499:
+            if args.do_validate and step % 500 == 499:
                 model.eval()
                 best_dev_score = validate_model(args, model, tokenizer, dev_examples, dev_features,
                                                 dev_dataloader, dev_evaluator, best_dev_score, device)

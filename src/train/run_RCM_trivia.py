@@ -251,7 +251,7 @@ def train_model(args, model, tokenizer, optimizer, train_examples, train_feature
                 training_loss = 0.0
 
             # validation on dev data
-            if args.do_validate and step % 499 == 0:
+            if args.do_validate and step % 500 == 499:
                 model.eval()
                 best_dev_score = validate_model(args, model, tokenizer, dev_examples, dev_features,
                                                 dev_dataloader, dev_evaluator, best_dev_score, device)
