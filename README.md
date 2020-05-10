@@ -370,4 +370,5 @@ python3 train/run_RCM_coqa.py
 If you have any questions, please contact Hongyu Gong (hongyugong6@gmail.com).
 
 If you use our code, please cite our work:
+
 Hongyu Gong, Yelong Shen, Dian Yu, Jianshu Chen and Dong Yu, "Recurrent Chunking Mechanisms for Long-Text Machine Reading Comprehension", accepted by Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics (ACL 2020).
