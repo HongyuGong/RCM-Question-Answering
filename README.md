@@ -371,4 +371,19 @@ If you have any questions, please contact Hongyu Gong (hongyugong6@gmail.com).
 
 If you use our code, please cite our work:
 
-Hongyu Gong, Yelong Shen, Dian Yu, Jianshu Chen and Dong Yu, "Recurrent Chunking Mechanisms for Long-Text Machine Reading Comprehension", accepted by Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics (ACL 2020).
+Hongyu Gong, Yelong Shen, Dian Yu, Jianshu Chen and Dong Yu, "Recurrent Chunking Mechanisms for Long-Text Machine Reading Comprehension", in Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics (Volume 1: Long Papers) 2020 Jul (pp. 6751--6761).
+
+@inproceedings{gong-etal-2020-recurrent,
+    title = "Recurrent Chunking Mechanisms for Long-Text Machine Reading Comprehension",
+    author = "Gong, Hongyu  and
+      Shen, Yelong  and
+      Yu, Dian  and
+      Chen, Jianshu  and
+      Yu, Dong",
+    booktitle = "Proceedings of the 58th Annual Meeting of the Association for Computational Linguistics",
+    month = jul,
+    year = "2020",
+    address = "Online",
+    publisher = "Association for Computational Linguistics",
+    url = "https://www.aclweb.org/anthology/2020.acl-main.603",
+    pages = "6751--6761"}
